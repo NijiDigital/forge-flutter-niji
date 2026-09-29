@@ -1,93 +1,230 @@
-# Forge
+# Forge Flutter
 
+This repository contains the Niji mobile team's **Flutter forge**: the [fastlane](https://docs.fastlane.tools) lanes shared across Flutter projects (Android and iOS builds).
 
+Instead of copying these lanes into every project, the forge is added as a **Git submodule** in the project's `fastlane/` folder. Each project thus references a specific version of the forge and can update it whenever it wants. Project-specific configuration (identifiers, signing, gem versions) stays in the project.
 
-## Getting started
+## Adding the forge to an existing project
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+### 1. Initialize fastlane at the project root
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+The project must have a `Gemfile` at its root, with its `Gemfile.lock` committed:
 
-## Add your files
+```ruby
+source "https://rubygems.org"
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.niji.fr/dsf/mobile/flutter/forge.git
-git branch -M main
-git push -uf origin main
+gem "fastlane"
 ```
 
-## Integrate with your tools
+```bash
+bundle install
+bundle exec fastlane init
+```
 
-* [Set up project integrations](https://gitlab.niji.fr/dsf/mobile/flutter/forge/-/settings/integrations)
+This creates a `fastlane/` folder at the project root, with an `Appfile` and a `Fastfile`.
 
-## Collaborate with your team
+### 2. Add the forge as a submodule
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+Still from the project root:
 
-## Test and Deploy
+```bash
+git submodule add https://github.com/NijiDigital/forge-flutter-niji.git fastlane/forge
+```
 
-Use the built-in continuous integration in GitLab.
+This command clones the forge into `fastlane/forge/`, creates (or updates) the `.gitmodules` file and stages both.
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+### 3. Import the forge lanes
 
-***
+In `fastlane/Fastfile`:
 
-# Editing this README
+```ruby
+import("forge/Forge.rb")
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+# Project-specific lanes can be added here.
+```
 
-## Suggestions for a good README
+### 4. Configure the project
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+Project-specific values live in its `fastlane/` folder:
 
-## Name
-Choose a self-explaining name for your project.
+```
+<project>/
+├── Gemfile / Gemfile.lock
+└── fastlane/
+    ├── Fastfile        # import("forge/Forge.rb") + project lanes
+    ├── Appfile         # application identifiers
+    ├── Matchfile       # iOS signing
+    ├── .env.default    # optional settings for the forge lanes
+    └── forge/          # this repository (submodule)
+```
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+**`fastlane/Appfile`**
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+```ruby
+app_identifier("com.example.app") # iOS bundle identifier
+package_name("com.example.app")   # Android package name
+```
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+**`fastlane/Matchfile`** (example with Niji Enterprise signing)
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+```ruby
+git_url("<URL_FASTLANE_MATCH>")
+storage_mode("git")
+type("enterprise")
+app_identifier(["com.example.app"])
+readonly(true)
+team_id("<TEAM_ID>")
+```
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+**`fastlane/.env.default`** (optional, loaded automatically by fastlane)
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `FORGE_IOS_IPA_NAME` | `Runner.ipa` | Name of the generated IPA file |
+| `FORGE_IOS_EXPORT_METHOD` | `enterprise` | `build_app` export method |
+| `FORGE_COVERAGE_EXCLUDES` | _(empty)_ | Space-separated lcov patterns excluded from the filtered coverage report (e.g. `lib/main.dart lib/pages/*`) |
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+On CI, the `signing_setup` lane (called by `build_ipa_release`) also requires two variables, with no default value, which are also read by match:
+
+| Variable | Purpose |
+| --- | --- |
+| `MATCH_KEYCHAIN_NAME` | Name of the keychain to create (e.g. `ci.keychain`) |
+| `MATCH_KEYCHAIN_PASSWORD` | Keychain password (CI secret variable) |
+
+A variable already set in the environment (for example a CI variable) takes precedence.
+
+Finally, ignore the reports generated by fastlane in the project's `.gitignore`:
+
+```gitignore
+fastlane/report.xml
+fastlane/report.junit
+```
+
+### 5. Commit
+
+```bash
+git add .gitmodules Gemfile Gemfile.lock fastlane
+git commit -m "chore: add fastlane with forge submodule"
+```
+
+## Available lanes
+
+From the project root:
+
+```bash
+bundle exec fastlane test
+bundle exec fastlane test coverage:true
+bundle exec fastlane test send_metrics:true
+bundle exec fastlane analyze
+bundle exec fastlane send_metrics
+```
+
+```bash
+bundle exec fastlane android build_apk_release
+bundle exec fastlane android build_apk_release flavor:dev
+```
+
+```bash
+bundle exec fastlane ios build_ipa_release
+bundle exec fastlane ios build_ipa_release flavor:prod
+```
+
+| Platform | Lane | Result |
+| --- | --- | --- |
+| All | `test` | Runs `flutter test` (with `coverage:true`: `coverage/lcov.info` + HTML reports, see below; with `send_metrics:true`: coverage then `send_metrics`) |
+| All | `analyze` | Runs `flutter analyze` |
+| All | `send_metrics` | Sends the analysis and the existing coverage (`coverage/lcov.info`) to SonarQube, see below |
+| Android | `build_apk_release` | `build/app/outputs/flutter-apk/app-release.apk` (`app-<flavor>-release.apk` with `flavor:`) |
+| iOS | `signing_setup` | Fetches certificates via match; on CI, first creates a temporary keychain. Called by `build_ipa_release` |
+| iOS | `build_ipa_release` | `build/fastlane/ipa/<FORGE_IOS_IPA_NAME>` (certificates fetched via match) |
+
+Flutter commands are run through `fvm` from the project root.
+
+### Flavors
+
+`build_apk_release` and `build_ipa_release` accept `flavor:<name>` and `target:<path>`:
+
+- `--flavor <name>` is passed to `flutter build`;
+- the entry point is `target:` if provided, otherwise `lib/main_<name>.dart` if it exists, otherwise `lib/main.dart`;
+- on iOS, `build_app` uses the `<name>` scheme and the `Release-<name>` configuration.
+
+### SonarQube analysis
+
+`bundle exec fastlane test send_metrics:true` runs the tests with coverage, then the `send_metrics` lane. `SONAR_TOKEN` is checked **before** the tests: if it is missing, the upload is skipped locally (a warning is shown, tests still run) and the lane fails on CI.
+
+The `send_metrics` lane can also be run on its own, on previously generated coverage. It reads the static configuration from the project's `sonar-project.properties`: key, sources, exclusions, `sonar.dart.lcov.reportPaths=coverage/lcov.info`. `sonar-scanner` must be installed (`brew install sonar-scanner` locally).
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SONAR_TOKEN` | _(required)_ | SonarQube token |
+| `SONAR_HOST_URL` | _(none)_ | Server URL (or `sonar.host.url` in `sonar-project.properties`) |
+| `SONAR_SCANNER_ARGS` | _(empty)_ | Extra `sonar-scanner` arguments (on CI: branch or MR analysis). When empty outside CI, the current Git branch is analyzed |
+
+### Coverage report
+
+With `coverage:true`, the `test` lane then runs `scripts/coverage_report.sh` (installs `lcov` if missing, via Homebrew on macOS or apt-get on Linux), which generates in `coverage/`:
+
+| File | Content |
+| --- | --- |
+| `html/` | Full HTML report |
+| `lcov_filtered.info`, `html_filtered/` | Filtered report (if `FORGE_COVERAGE_EXCLUDES` is set) |
+| `coverage_html.zip` | Zipped HTML reports (CI artifact) |
+
+Coverage summaries are printed to the console.
+
+### Codemagic builds triggered from GitLab CI
+
+`scripts/codemagic_build.sh <workflowId> [artifacts_dir]` triggers a Codemagic workflow through the API on the pipeline's branch (or tag), follows its execution and downloads its artifacts (default: `codemagic-artifacts/`). The job fails if the build does not end with the `finished` status.
+
+Required CI/CD variables: `CODEMAGIC_API_TOKEN` (masked), `CODEMAGIC_APP_ID`. Optional: `CODEMAGIC_POLL_INTERVAL` (seconds, default 30).
+
+Since the forge repository is public, the GitLab job can clone the submodule without credentials before calling the script:
+
+```yaml
+variables:
+  GIT_SUBMODULE_STRATEGY: normal
+before_script:
+  # curl and jq must be available on the runner (e.g. alpine image: apk add curl jq)
+```
+
+## Managing the submodule
+
+### Cloning a project that already uses the forge
+
+```bash
+git clone --recurse-submodules <project-url>
+```
+
+If the project was already cloned without its submodules:
+
+```bash
+git submodule update --init --recursive
+```
+
+### Updating the forge
+
+```bash
+git submodule update --remote fastlane/forge
+git add fastlane/forge
+git commit -m "chore: update forge submodule"
+```
+
+The project then points to the new forge commit; other team members get this version with `git submodule update`.
+
+### Removing the forge
+
+```bash
+git submodule deinit -f fastlane/forge
+git rm -f fastlane/forge
+# The folder is named after the submodule: fastlane/forge by default, forge on older projects
+rm -rf .git/modules/fastlane/forge .git/modules/forge
+git commit -m "chore: remove forge submodule"
+```
+
+Then remember to remove `import("forge/Forge.rb")` from `fastlane/Fastfile`.
 
 ## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+Changes to the forge must be made in this repository (not directly from a project that uses it) through a pull request on [NijiDigital/forge-flutter-niji](https://github.com/NijiDigital/forge-flutter-niji).
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+If a lane needs a fastlane plugin, mention it here: each project will have to add it to its `Gemfile` / `Pluginfile`.
