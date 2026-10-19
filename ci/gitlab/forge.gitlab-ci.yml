@@ -17,6 +17,11 @@
 #   CODEMAGIC_WORKFLOW_ID         workflow triggered by .forge_codemagic_ios
 #   CODEMAGIC_API_TOKEN, CODEMAGIC_APP_ID  see scripts/codemagic_build.sh
 
+# Global defaults: the project's global variables override them. A job-level default
+# would win over the project's global value.
+variables:
+  FORGE_FLUTTER_IMAGE: ghcr.io/cirruslabs/flutter:stable
+
 .forge_base:
   interruptible: true
   variables:
@@ -27,7 +32,6 @@
   extends: .forge_base
   image: ${FORGE_FLUTTER_IMAGE}
   variables:
-    FORGE_FLUTTER_IMAGE: ghcr.io/cirruslabs/flutter:stable
     LANG: C.UTF-8
     LC_ALL: C.UTF-8
     PUB_CACHE: ${CI_PROJECT_DIR}/.pub-cache
