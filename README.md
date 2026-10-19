@@ -104,6 +104,7 @@ Preparation settings (`prepare` lane, see [Preparation](#preparation)) and other
 | `FORGE_VERSION_TAG_REGEX` | `^v?(\d+\.\d+\.\d+)` | Regex whose first group is the version name in the Git tag |
 | `FORGE_BUILD_NUMBER_PREFIX` | _(empty)_ | Prefix of the generated build number |
 | `FORGE_COVERAGE_EXCLUDES` | _(empty)_ | Space-separated lcov patterns excluded from the filtered coverage report (e.g. `lib/main.dart lib/pages/*`) |
+| `FORGE_ANALYZE_ARGS` | _(empty)_ | Extra `flutter analyze` arguments of the `analyze` lane (e.g. `--no-fatal-infos` to fail only on warnings and errors) |
 
 > Variables of a `.env.<name>` file loaded with `--env` override the variables already set in the environment: keep CI secrets out of these files.
 

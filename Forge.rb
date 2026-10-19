@@ -104,12 +104,14 @@ lane :test do |options|
   send_metrics if publish_metrics
 end
 
+# Optional settings (fastlane/.env.default or environment):
+#   FORGE_ANALYZE_ARGS  extra flutter analyze arguments (e.g. --no-fatal-infos)
 desc "Run the Flutter static analysis"
 lane :analyze do
   prepare
 
   UI.message("Running Flutter analyze...")
-  forge_sh("fvm flutter analyze")
+  forge_sh("fvm flutter analyze #{ENV['FORGE_ANALYZE_ARGS']}".strip)
 
   UI.success("Flutter analyze passed 🎉")
 end
