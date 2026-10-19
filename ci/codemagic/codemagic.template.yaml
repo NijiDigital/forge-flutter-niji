@@ -1,0 +1,56 @@
+# Codemagic template of the Flutter forge: iOS builds on macOS, triggered from GitLab CI
+# (.forge_codemagic_ios job, scripts/codemagic_build.sh). Copy it to the project's
+# codemagic.yaml and declare one workflow per fastlane environment.
+#
+# The workflows have no `triggering` section: they only start through the API, which
+# avoids duplicate builds with GitLab.
+#
+# Required Codemagic environment (per group):
+#   MATCH_PASSWORD, MATCH_GIT_BASIC_AUTHORIZATION, MATCH_KEYCHAIN_NAME, MATCH_KEYCHAIN_PASSWORD
+#   + the variables read by FORGE_CI_FILES / FORGE_IOS_CI_FILES / FORGE_PREPARE_SCRIPT
+
+definitions:
+  cache_ios: &cache_ios
+    - $HOME/.pub-cache
+    - $HOME/Library/Caches/CocoaPods
+    - $HOME/fvm
+    - $CM_BUILD_DIR/vendor/bundle
+    - $HOME/.rbenv/versions
+
+  ios_workflow: &ios_workflow
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    cache:
+      cache_paths: *cache_ios
+    scripts:
+      - name: Set up FVM
+        script: bash fastlane/forge/scripts/setup_fvm.sh
+      - name: Install Ruby gems
+        script: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [ -f .ruby-version ]; then
+            rbenv install -s "$(cat .ruby-version)"
+            rbenv global "$(cat .ruby-version)"
+            rbenv rehash
+            echo "PATH=$HOME/.rbenv/shims:$PATH" >> "$CM_ENV"
+            export PATH="$HOME/.rbenv/shims:$PATH"
+          fi
+          bundle config set --local path 'vendor/bundle'
+          bundle install
+      - name: Build iOS
+        script: bundle exec fastlane ios build_ipa_release --env "$FASTLANE_ENV"
+    artifacts:
+      - build/ios/ipa/*.ipa
+
+workflows:
+  ios_example:
+    name: iOS <environment>
+    <<: *ios_workflow
+    environment:
+      xcode: latest
+      cocoapods: default
+      groups:
+        - FASTLANE_MATCH
+      vars:
+        FASTLANE_ENV: <environment>

@@ -1,0 +1,126 @@
+# Hidden GitLab CI jobs of the Flutter forge, to extend from the project's .gitlab-ci.yml.
+#
+# GitLab cannot `include: local` a file of a submodule: include this file remotely,
+# pinned to the same forge version as the fastlane/forge submodule:
+#
+#   include:
+#     - remote: https://raw.githubusercontent.com/NijiDigital/forge-flutter-niji/<tag>/ci/gitlab/forge.gitlab-ci.yml
+#
+# Every job only runs fastlane lanes or forge scripts: each step can be run locally.
+#
+# Settings (job or project variables):
+#   FORGE_FLUTTER_IMAGE           Linux image with Flutter, Android SDK and JDK
+#                                 (default: ghcr.io/cirruslabs/flutter:stable)
+#   FORGE_FASTLANE_ENV            fastlane --env <name> passed to the lanes (optional)
+#   FORGE_SONAR_SCANNER_VERSION   sonar-scanner CLI version of .forge_test_sonar
+#   CODEMAGIC_WORKFLOW_ID         workflow triggered by .forge_codemagic_ios
+#   CODEMAGIC_API_TOKEN, CODEMAGIC_APP_ID  see scripts/codemagic_build.sh
+
+.forge_base:
+  interruptible: true
+  variables:
+    GIT_SUBMODULE_STRATEGY: normal
+
+# Flutter + fastlane on a Linux runner (Docker executor)
+.forge_flutter_linux:
+  extends: .forge_base
+  image: ${FORGE_FLUTTER_IMAGE}
+  variables:
+    FORGE_FLUTTER_IMAGE: ghcr.io/cirruslabs/flutter:stable
+    LANG: C.UTF-8
+    LC_ALL: C.UTF-8
+    PUB_CACHE: ${CI_PROJECT_DIR}/.pub-cache
+    FVM_CACHE_PATH: ${CI_PROJECT_DIR}/.fvm-cache
+    GRADLE_USER_HOME: ${CI_PROJECT_DIR}/.gradle-home
+    BUNDLE_PATH: ${CI_PROJECT_DIR}/vendor/bundle
+  cache:
+    key:
+      files:
+        - pubspec.lock
+        - Gemfile.lock
+    paths:
+      - .pub-cache/
+      - .fvm-cache/
+      - .gradle-home/caches/
+      - .gradle-home/wrapper/
+      - vendor/bundle/
+  before_script:
+    - |
+      if ! command -v bundle > /dev/null; then
+        apt-get update -qq
+        apt-get install -y -qq ruby-full build-essential > /dev/null
+      fi
+    - bundle install --jobs 4 --retry 3
+    - bash fastlane/forge/scripts/setup_fvm.sh
+    - export PATH="${CI_PROJECT_DIR}/.fvm/flutter_sdk/bin:${PUB_CACHE}/bin:${PATH}"
+
+.forge_analyze:
+  extends: .forge_flutter_linux
+  script:
+    - bundle exec fastlane analyze ${FORGE_FASTLANE_ENV:+--env "$FORGE_FASTLANE_ENV"}
+
+# Tests with coverage, then SonarQube analysis (merge request or branch).
+# Requires SONAR_TOKEN (masked) and SONAR_HOST_URL (or sonar.host.url).
+.forge_test_sonar:
+  extends: .forge_flutter_linux
+  variables:
+    GIT_DEPTH: "0"
+    FORGE_SONAR_SCANNER_VERSION: 6.2.1.4610
+  script:
+    - |
+      if ! command -v sonar-scanner > /dev/null; then
+        command -v unzip > /dev/null || (apt-get update -qq && apt-get install -y -qq unzip > /dev/null)
+        curl -sSLo /tmp/sonar-scanner.zip "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${FORGE_SONAR_SCANNER_VERSION}-linux-x64.zip"
+        unzip -q /tmp/sonar-scanner.zip -d /opt
+        export PATH="/opt/sonar-scanner-${FORGE_SONAR_SCANNER_VERSION}-linux-x64/bin:${PATH}"
+      fi
+    - |
+      if [ -z "${SONAR_SCANNER_ARGS:-}" ]; then
+        if [ -n "${CI_MERGE_REQUEST_IID:-}" ]; then
+          export SONAR_SCANNER_ARGS="-Dsonar.pullrequest.key=${CI_MERGE_REQUEST_IID} -Dsonar.pullrequest.branch=${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME} -Dsonar.pullrequest.base=${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}"
+        else
+          export SONAR_SCANNER_ARGS="-Dsonar.branch.name=${CI_COMMIT_REF_NAME}"
+        fi
+      fi
+    - bundle exec fastlane test send_metrics:true ${FORGE_FASTLANE_ENV:+--env "$FORGE_FASTLANE_ENV"}
+  artifacts:
+    when: always
+    paths:
+      - coverage/coverage_html.zip
+    expire_in: 7 days
+
+# Android release build. Set FORGE_ANDROID_BUILD_TYPE (apk|appbundle) and FORGE_FASTLANE_ENV
+# on the job, and the signing variables documented in the README.
+.forge_android_build:
+  extends: .forge_flutter_linux
+  script:
+    - bundle exec fastlane android build_android_release ${FORGE_FASTLANE_ENV:+--env "$FORGE_FASTLANE_ENV"}
+  artifacts:
+    paths:
+      - build/app/outputs/flutter-apk/*.apk
+      - build/app/outputs/bundle/**/*.aab
+      - build/app/outputs/mapping/**/mapping.txt
+    expire_in: 30 days
+
+# iOS build delegated to a Codemagic workflow (macOS), whose artifacts are downloaded
+# into codemagic-artifacts/. Set CODEMAGIC_WORKFLOW_ID on the job.
+.forge_codemagic_ios:
+  extends: .forge_base
+  image: alpine:3.20
+  timeout: 90 minutes
+  before_script:
+    - apk add --no-cache curl jq > /dev/null
+  script:
+    - sh fastlane/forge/scripts/codemagic_build.sh "$CODEMAGIC_WORKFLOW_ID" codemagic-artifacts
+  after_script:
+    # A canceled GitLab job also cancels the Codemagic build
+    - |
+      if [ "$CI_JOB_STATUS" = "canceled" ] && [ -f .codemagic_build_id ]; then
+        apk add --no-cache curl > /dev/null
+        curl -sS -X POST -H "x-auth-token: ${CODEMAGIC_API_TOKEN}" "https://api.codemagic.io/builds/$(cat .codemagic_build_id)/cancel" || true
+      fi
+  artifacts:
+    when: always
+    paths:
+      - codemagic-artifacts/
+    expire_in: 30 days
