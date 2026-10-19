@@ -82,14 +82,20 @@ lane :test do |options|
 
   prepare
 
-  UI.message("Running Flutter tests...")
-  command = "fvm flutter test"
-  command += " --coverage" if coverage
-  forge_sh(command)
+  has_tests = Dir.exist?(File.join(FORGE_PROJECT_ROOT, "test"))
+  if has_tests
+    UI.message("Running Flutter tests...")
+    command = "fvm flutter test"
+    command += " --coverage" if coverage
+    forge_sh(command)
 
-  UI.success("Flutter tests passed 🎉")
+    UI.success("Flutter tests passed 🎉")
+  else
+    # flutter test fails without a test/ folder: SonarQube still gets the analysis, without coverage
+    UI.important("No test/ folder: tests skipped")
+  end
 
-  if coverage
+  if coverage && has_tests
     UI.message("Generating coverage reports...")
     forge_sh("bash #{File.join(FORGE_DIR, "scripts", "coverage_report.sh").shellescape}")
     UI.success("Coverage reports generated in: coverage/ 🎉")
