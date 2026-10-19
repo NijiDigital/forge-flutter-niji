@@ -1,10 +1,11 @@
 # Hidden GitLab CI jobs of the Flutter forge, to extend from the project's .gitlab-ci.yml.
 #
-# GitLab cannot `include: local` a file of a submodule: include this file remotely,
-# pinned to the same forge version as the fastlane/forge submodule:
+# GitLab resolves includes before cloning, so it cannot read this file from the
+# fastlane/forge submodule: copy it to the project's .gitlab/ folder (again after each
+# forge upgrade) and include the copy:
 #
 #   include:
-#     - remote: https://raw.githubusercontent.com/NijiDigital/forge-flutter-niji/<tag>/ci/gitlab/forge.gitlab-ci.yml
+#     - local: .gitlab/forge.gitlab-ci.yml
 #
 # Every job only runs fastlane lanes or forge scripts: each step can be run locally.
 #

@@ -248,11 +248,16 @@ Recommended setup: analysis, tests, SonarQube and Android builds run on GitLab C
 | `scripts/setup_fvm.sh` | Installs the Flutter version of `.fvmrc` with FVM (GitLab and Codemagic) |
 | `scripts/codemagic_build.sh` | Triggers a Codemagic workflow, follows it and downloads its artifacts |
 
-GitLab cannot `include: local` a file from a submodule: include the template remotely, **pinned to the same forge version as the submodule**:
+GitLab resolves includes before cloning the repository, so it cannot read a file from a submodule. Copy the template to the project and include the copy:
+
+```bash
+mkdir -p .gitlab
+cp fastlane/forge/ci/gitlab/forge.gitlab-ci.yml .gitlab/
+```
 
 ```yaml
 include:
-  - remote: https://raw.githubusercontent.com/NijiDigital/forge-flutter-niji/<tag>/ci/gitlab/forge.gitlab-ci.yml
+  - local: .gitlab/forge.gitlab-ci.yml
 
 variables:
   FORGE_FLUTTER_IMAGE: ghcr.io/cirruslabs/flutter:<version of .fvmrc>
@@ -306,9 +311,12 @@ git submodule update --init --recursive
 
 ```bash
 git submodule update --remote fastlane/forge
-git add fastlane/forge
+cp fastlane/forge/ci/gitlab/forge.gitlab-ci.yml .gitlab/
+git add fastlane/forge .gitlab/forge.gitlab-ci.yml
 git commit -m "chore: update forge submodule"
 ```
+
+Copy the GitLab CI template again at each update, so that the project's jobs match the new forge version.
 
 The project then points to the new forge commit; other team members get this version with `git submodule update`.
 
