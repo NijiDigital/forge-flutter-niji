@@ -244,7 +244,7 @@ Recommended setup: analysis, tests, SonarQube and Android builds run on GitLab C
 
 | File | Purpose |
 | --- | --- |
-| `ci/gitlab/forge.gitlab-ci.yml` | Hidden jobs to extend: `.forge_flutter_linux`, `.forge_analyze`, `.forge_test_sonar`, `.forge_android_build`, `.forge_codemagic_ios` |
+| `ci/gitlab/forge.gitlab-ci.yml` | Hidden jobs to extend: `.forge_flutter_linux`, `.forge_analyze`, `.forge_test_sonar`, `.forge_android_build`, `.forge_codemagic` (former name `.forge_codemagic_ios`, still accepted) |
 | `ci/codemagic/codemagic.template.yaml` | iOS workflow template to copy to the project's `codemagic.yaml` |
 | `scripts/setup_fvm.sh` | Installs the Flutter version of `.fvmrc` with FVM (GitLab and Codemagic) |
 | `scripts/codemagic_build.sh` | Triggers a Codemagic workflow, follows it and downloads its artifacts |
@@ -277,7 +277,7 @@ android_release:
     - if: $CI_COMMIT_TAG
 
 ios_release:
-  extends: .forge_codemagic_ios
+  extends: .forge_codemagic
   variables:
     CODEMAGIC_WORKFLOW_ID: ios_prod
   rules:
@@ -288,7 +288,7 @@ ios_release:
 
 ### Codemagic builds triggered from GitLab CI
 
-`scripts/codemagic_build.sh <workflowId> [artifacts_dir]` triggers a Codemagic workflow through the API on the pipeline's branch (or tag), follows its execution and downloads its artifacts (default: `codemagic-artifacts/`). The job fails if the build does not end with the `finished` status. `.forge_codemagic_ios` also cancels the Codemagic build when the GitLab job is canceled.
+`scripts/codemagic_build.sh <workflowId> [artifacts_dir]` triggers a Codemagic workflow through the API on the pipeline's branch (or tag), follows its execution and downloads its artifacts (default: `codemagic-artifacts/`). The job fails if the build does not end with the `finished` status. `.forge_codemagic` also cancels the Codemagic build when the GitLab job is canceled.
 
 Required CI/CD variables: `CODEMAGIC_API_TOKEN` (masked), `CODEMAGIC_APP_ID`. Optional: `CODEMAGIC_POLL_INTERVAL` (seconds, default 30).
 

@@ -14,7 +14,7 @@
 #                                 (default: ghcr.io/cirruslabs/flutter:stable)
 #   FORGE_FASTLANE_ENV            fastlane --env <name> passed to the lanes (optional)
 #   FORGE_SONAR_SCANNER_VERSION   sonar-scanner CLI version of .forge_test_sonar
-#   CODEMAGIC_WORKFLOW_ID         workflow triggered by .forge_codemagic_ios
+#   CODEMAGIC_WORKFLOW_ID         workflow triggered by .forge_codemagic
 #   CODEMAGIC_API_TOKEN, CODEMAGIC_APP_ID  see scripts/codemagic_build.sh
 
 # Global defaults: the project's global variables override them. A job-level default
@@ -107,9 +107,9 @@ variables:
       - build/app/outputs/mapping/**/mapping.txt
     expire_in: 30 days
 
-# iOS build delegated to a Codemagic workflow (macOS), whose artifacts are downloaded
-# into codemagic-artifacts/. Set CODEMAGIC_WORKFLOW_ID on the job.
-.forge_codemagic_ios:
+# Build delegated to a Codemagic workflow (iOS on macOS, Android on Linux...), whose
+# artifacts are downloaded into codemagic-artifacts/. Set CODEMAGIC_WORKFLOW_ID on the job.
+.forge_codemagic:
   extends: .forge_base
   image: alpine:3.20
   timeout: 90 minutes
@@ -129,3 +129,7 @@ variables:
     paths:
       - codemagic-artifacts/
     expire_in: 30 days
+
+# Deprecated: former name of .forge_codemagic, kept for the projects that extend it.
+.forge_codemagic_ios:
+  extends: .forge_codemagic

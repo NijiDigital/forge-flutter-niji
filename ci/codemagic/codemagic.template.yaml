@@ -1,5 +1,5 @@
 # Codemagic template of the Flutter forge: iOS builds on macOS, triggered from GitLab CI
-# (.forge_codemagic_ios job, scripts/codemagic_build.sh). Copy it to the project's
+# (.forge_codemagic job, scripts/codemagic_build.sh). Copy it to the project's
 # codemagic.yaml and declare one workflow per fastlane environment.
 #
 # The workflows have no `triggering` section: they only start through the API, which
