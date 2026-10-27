@@ -14,6 +14,8 @@
 #                                 (default: ghcr.io/cirruslabs/flutter:stable)
 #   FORGE_FASTLANE_ENV            fastlane --env <name> passed to the lanes (optional)
 #   FORGE_SONAR_SCANNER_VERSION   sonar-scanner CLI version of .forge_test_sonar
+#   FORGE_SONAR_SCANNER_SHA256    SHA-256 of its linux-x64 zip (change both together)
+#   FORGE_FVM_VERSION             FVM version installed by setup_fvm.sh (default: latest)
 #   CODEMAGIC_WORKFLOW_ID         workflow triggered by .forge_codemagic
 #   CODEMAGIC_API_TOKEN, CODEMAGIC_APP_ID  see scripts/codemagic_build.sh
 
@@ -71,11 +73,13 @@ variables:
   variables:
     GIT_DEPTH: "0"
     FORGE_SONAR_SCANNER_VERSION: 6.2.1.4610
+    FORGE_SONAR_SCANNER_SHA256: 0b8a3049f0bd5de7abc1582c78c233960d3d4ed7cc983a1d1635e8552f8bb439
   script:
     - |
       if ! command -v sonar-scanner > /dev/null; then
         command -v unzip > /dev/null || (apt-get update -qq && apt-get install -y -qq unzip > /dev/null)
         curl -sSLo /tmp/sonar-scanner.zip "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${FORGE_SONAR_SCANNER_VERSION}-linux-x64.zip"
+        echo "${FORGE_SONAR_SCANNER_SHA256}  /tmp/sonar-scanner.zip" | sha256sum -c -
         unzip -q /tmp/sonar-scanner.zip -d /opt
         export PATH="/opt/sonar-scanner-${FORGE_SONAR_SCANNER_VERSION}-linux-x64/bin:${PATH}"
       fi

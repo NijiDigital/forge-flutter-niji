@@ -121,7 +121,8 @@ end
 # the tests with coverage first.
 #
 # Static settings (project key, sources, exclusions, lcov path) are read by
-# sonar-scanner from the project's sonar-project.properties.
+# sonar-scanner from the project's sonar-project.properties. sonar.projectVersion is
+# passed from APP_BUILD_NAME (see version_metadata).
 #
 # Settings (environment):
 #   SONAR_TOKEN         SonarQube token (required)
@@ -136,6 +137,12 @@ lane :send_metrics do
 
   args = ENV["SONAR_SCANNER_ARGS"].to_s
   args = "-Dsonar.branch.name=#{git_branch.shellescape}" if args.empty? && !is_ci
+  # Version of the analysis: the resolved app version, so that sonar-project.properties
+  # does not have to be bumped at each release
+  forge_resolve_version_metadata
+  unless ENV["APP_BUILD_NAME"].to_s.empty? || args.include?("sonar.projectVersion")
+    args = "#{args} -Dsonar.projectVersion=#{ENV['APP_BUILD_NAME'].shellescape}"
+  end
 
   UI.message("Running SonarQube analysis...")
   forge_sh("sonar-scanner #{args}".strip)

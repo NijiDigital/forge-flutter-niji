@@ -218,7 +218,7 @@ signingConfigs {
 
 `bundle exec fastlane test send_metrics:true` runs the tests with coverage, then the `send_metrics` lane. `SONAR_TOKEN` is checked **before** the tests: if it is missing, the upload is skipped locally (a warning is shown, tests still run) and the lane fails on CI.
 
-The `send_metrics` lane can also be run on its own, on previously generated coverage. It reads the static configuration from the project's `sonar-project.properties`: key, sources, exclusions, `sonar.dart.lcov.reportPaths=coverage/lcov.info`. `sonar-scanner` must be installed (`brew install sonar-scanner` locally). Never commit the token in `sonar-project.properties`.
+The `send_metrics` lane can also be run on its own, on previously generated coverage. It reads the static configuration from the project's `sonar-project.properties`: key, sources, exclusions, `sonar.dart.lcov.reportPaths=coverage/lcov.info`. `sonar.projectVersion` is passed from the resolved app version (`APP_BUILD_NAME`, see `version_metadata`): do not set it in `sonar-project.properties`. `sonar-scanner` must be installed (`brew install sonar-scanner` locally). Never commit the token in `sonar-project.properties`.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -284,11 +284,11 @@ ios_release:
     - if: $CI_COMMIT_TAG
 ```
 
-`.forge_flutter_linux` installs Ruby and the bundle if needed, runs `setup_fvm.sh` and caches the pub, FVM, Gradle and bundler folders. `.forge_test_sonar` downloads `sonar-scanner` when the image does not provide it and computes `SONAR_SCANNER_ARGS` for merge requests and branches.
+`.forge_flutter_linux` installs Ruby and the bundle if needed, runs `setup_fvm.sh` and caches the pub, FVM, Gradle and bundler folders. `.forge_test_sonar` downloads `sonar-scanner` when the image does not provide it (checked against `FORGE_SONAR_SCANNER_SHA256`) and computes `SONAR_SCANNER_ARGS` for merge requests and branches.
 
 ### Codemagic builds triggered from GitLab CI
 
-`scripts/codemagic_build.sh <workflowId> [artifacts_dir]` triggers a Codemagic workflow through the API on the pipeline's branch (or tag), follows its execution and downloads its artifacts (default: `codemagic-artifacts/`). The job fails if the build does not end with the `finished` status. `.forge_codemagic` also cancels the Codemagic build when the GitLab job is canceled.
+`scripts/codemagic_build.sh <workflowId> [artifacts_dir]` triggers a Codemagic workflow through the API on the pipeline's branch (or tag), follows its execution and downloads its artifacts (default: `codemagic-artifacts/`). The job fails if the build does not end with the `finished` or `warning` status. `.forge_codemagic` also cancels the Codemagic build when the GitLab job is canceled.
 
 Required CI/CD variables: `CODEMAGIC_API_TOKEN` (masked), `CODEMAGIC_APP_ID`. Optional: `CODEMAGIC_POLL_INTERVAL` (seconds, default 30).
 

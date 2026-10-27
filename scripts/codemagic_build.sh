@@ -97,7 +97,10 @@ printf '%s' "${BUILD_JSON}" | jq -r '.build.artefacts[]? | [.name, .url] | @tsv'
     curl -sS --fail -L -H "x-auth-token: ${CODEMAGIC_API_TOKEN}" -o "${ARTIFACTS_DIR}/${NAME}" "${URL}"
   done
 
-if [ "${STATUS}" != "finished" ]; then
+# "warning": the build finished but a non-blocking step (e.g. publishing) reported a problem
+if [ "${STATUS}" = "warning" ]; then
+  echo "Codemagic build finished with warnings: see the Codemagic logs." >&2
+elif [ "${STATUS}" != "finished" ]; then
   echo "Codemagic build ended with status '${STATUS}'." >&2
   exit 1
 fi
