@@ -209,7 +209,7 @@ When only one platform uses flavors, set `FORGE_IOS_FLAVOR` (or `FORGE_ANDROID_F
 
 ### Android signing
 
-The forge does not sign the Android build itself: the project's `android/app/build.gradle` reads the release keystore. Convention used by the CI templates (GitLab: `ANDROID_KEYSTORE_PATH` as a *File* variable, the others masked):
+The forge does not sign the Android build itself: the project's `android/app/build.gradle` reads the release keystore. Convention (`ANDROID_KEYSTORE_PATH` points to the keystore file, the other variables are secrets):
 
 ```groovy
 signingConfigs {
@@ -250,11 +250,11 @@ Coverage summaries are printed to the console.
 
 ## CI: GitLab CI (Linux) + Codemagic (iOS)
 
-Recommended setup: analysis, tests, SonarQube and Android builds run on GitLab CI (Linux runner); iOS builds run on Codemagic (macOS), triggered and followed by a GitLab job. Every CI step is a fastlane lane or a forge script, so it can also be run locally. The analysis and test jobs run the forge scripts without Ruby; set `FORGE_FASTLANE_ENV` on the job to load `fastlane/.env.<name>`.
+Recommended setup: analysis, tests and SonarQube run on GitLab CI (Linux runner) through the forge scripts, without Ruby; set `FORGE_FASTLANE_ENV` on the job to load `fastlane/.env.<name>`. Builds run fastlane on Codemagic only, triggered and followed by a GitLab job. Every CI step is a forge script or a fastlane lane, so it can also be run locally.
 
 | File | Purpose |
 | --- | --- |
-| `ci/gitlab/forge.gitlab-ci.yml` | Hidden jobs to extend: `.forge_flutter`, `.forge_flutter_linux`, `.forge_analyze`, `.forge_test_sonar`, `.forge_android_build`, `.forge_codemagic` (former name `.forge_codemagic_ios`, still accepted) |
+| `ci/gitlab/forge.gitlab-ci.yml` | Hidden jobs to extend: `.forge_flutter`, `.forge_analyze`, `.forge_test_sonar`, `.forge_codemagic` (former name `.forge_codemagic_ios`, still accepted) |
 | `ci/codemagic/codemagic.template.yaml` | iOS workflow template to copy to the project's `codemagic.yaml` |
 | `scripts/setup_fvm.sh` | Installs the Flutter version of `.fvmrc` with FVM (GitLab and Codemagic), reusing the SDK on the `PATH` when it is that version (e.g. `cirruslabs/flutter:<version>` image) |
 | `scripts/analyze.sh`, `scripts/test.sh`, `scripts/send_metrics.sh`, `scripts/prepare.sh` | Lanes of the same name, without Ruby (`common.sh` loads the `.env` files and resolves the version) |
@@ -280,10 +280,9 @@ analyze:
     FORGE_FASTLANE_ENV: dev
 
 android_release:
-  extends: .forge_android_build
+  extends: .forge_codemagic
   variables:
-    FORGE_FASTLANE_ENV: prod
-    FORGE_ANDROID_BUILD_TYPE: appbundle
+    CODEMAGIC_WORKFLOW_ID: android_prod
   rules:
     - if: $CI_COMMIT_TAG
 
@@ -295,7 +294,7 @@ ios_release:
     - if: $CI_COMMIT_TAG
 ```
 
-`.forge_flutter` runs `setup_fvm.sh` (which reuses the image's Flutter SDK when it is the `.fvmrc` version) and caches the pub, FVM, Gradle and bundler folders. `.forge_analyze` and `.forge_test_sonar` extend it and run the forge scripts directly, without Ruby. `.forge_flutter_linux` also installs Ruby and the bundle, for the fastlane jobs (`.forge_android_build`). `.forge_test_sonar` downloads `sonar-scanner` when the image does not provide it (checked against `FORGE_SONAR_SCANNER_SHA256`) and computes `SONAR_SCANNER_ARGS` for merge requests and branches.
+`.forge_flutter` runs `setup_fvm.sh` (which reuses the image's Flutter SDK when it is the `.fvmrc` version) and caches the pub and FVM folders. `.forge_analyze` and `.forge_test_sonar` extend it and run the forge scripts directly, without Ruby. `.forge_test_sonar` downloads `sonar-scanner` when the image does not provide it (checked against `FORGE_SONAR_SCANNER_SHA256`) and computes `SONAR_SCANNER_ARGS` for merge requests and branches.
 
 ### Codemagic builds triggered from GitLab CI
 

@@ -7,14 +7,14 @@
 #   include:
 #     - local: .gitlab/forge.gitlab-ci.yml
 #
-# Every job only runs fastlane lanes or forge scripts: each step can be run locally.
-# The analysis and test jobs run the forge scripts directly, without Ruby.
+# Every job only runs forge scripts, without Ruby: each step can be run locally. The
+# builds run fastlane on Codemagic only (.forge_codemagic).
 #
 # Settings (job or project variables):
 #   FORGE_FLUTTER_IMAGE           Linux image with Flutter, Android SDK and JDK
 #                                 (default: ghcr.io/cirruslabs/flutter:stable)
-#   FORGE_FASTLANE_ENV            fastlane --env <name> passed to the lanes, and env file
-#                                 loaded by the scripts (optional)
+#   FORGE_FASTLANE_ENV            fastlane/.env.<name> loaded by the scripts, like
+#                                 fastlane --env <name> (optional)
 #   FORGE_SONAR_SCANNER_VERSION   sonar-scanner CLI version of .forge_test_sonar
 #   FORGE_SONAR_SCANNER_SHA256    SHA-256 of its linux-x64 zip (change both together)
 #   FORGE_FVM_VERSION             FVM version installed by setup_fvm.sh (default: latest)
@@ -31,8 +31,7 @@ variables:
   variables:
     GIT_SUBMODULE_STRATEGY: normal
 
-# Flutter on a Linux runner (Docker executor), without Ruby: for the jobs that only run
-# forge scripts (analyze.sh, test.sh)
+# Flutter on a Linux runner (Docker executor), without Ruby
 .forge_flutter:
   extends: .forge_base
   image: ${FORGE_FLUTTER_IMAGE}
@@ -41,34 +40,16 @@ variables:
     LC_ALL: C.UTF-8
     PUB_CACHE: ${CI_PROJECT_DIR}/.pub-cache
     FVM_CACHE_PATH: ${CI_PROJECT_DIR}/.fvm-cache
-    GRADLE_USER_HOME: ${CI_PROJECT_DIR}/.gradle-home
-    BUNDLE_PATH: ${CI_PROJECT_DIR}/vendor/bundle
   cache:
     key:
       files:
         - pubspec.lock
-        - Gemfile.lock
     paths:
       - .pub-cache/
       - .fvm-cache/
-      - .gradle-home/caches/
-      - .gradle-home/wrapper/
-      - vendor/bundle/
   before_script:
     - bash fastlane/forge/scripts/setup_fvm.sh
     - export PATH="${CI_PROJECT_DIR}/.fvm/flutter_sdk/bin:${PUB_CACHE}/bin:${PATH}"
-
-# Flutter + fastlane on a Linux runner (Docker executor): installs Ruby and the bundle
-.forge_flutter_linux:
-  extends: .forge_flutter
-  before_script:
-    - |
-      if ! command -v bundle > /dev/null; then
-        apt-get update -qq
-        apt-get install -y -qq ruby-full build-essential > /dev/null
-      fi
-    - bundle install --jobs 4 --retry 3
-    - !reference [.forge_flutter, before_script]
 
 .forge_analyze:
   extends: .forge_flutter
@@ -106,19 +87,6 @@ variables:
     paths:
       - coverage/coverage_html.zip
     expire_in: 7 days
-
-# Android release build. Set FORGE_ANDROID_BUILD_TYPE (apk|appbundle) and FORGE_FASTLANE_ENV
-# on the job, and the signing variables documented in the README.
-.forge_android_build:
-  extends: .forge_flutter_linux
-  script:
-    - bundle exec fastlane android build_android_release ${FORGE_FASTLANE_ENV:+--env "$FORGE_FASTLANE_ENV"}
-  artifacts:
-    paths:
-      - build/app/outputs/flutter-apk/*.apk
-      - build/app/outputs/bundle/**/*.aab
-      - build/app/outputs/mapping/**/mapping.txt
-    expire_in: 30 days
 
 # Build delegated to a Codemagic workflow (iOS on macOS, Android on Linux...), whose
 # artifacts are downloaded into codemagic-artifacts/. Set CODEMAGIC_WORKFLOW_ID on the job.
