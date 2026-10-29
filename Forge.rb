@@ -33,8 +33,8 @@ lane :version_metadata do
   forge_resolve_version_metadata
 end
 
-# Prepares the project before analyzing, testing or building it. Called by the
-# test, analyze and build lanes.
+# Prepares the project before analyzing, testing or building it (scripts/prepare.sh).
+# Called by the build lanes; analyze.sh and test.sh run prepare.sh themselves.
 #
 # Optional settings (environment):
 #   FORGE_CI_FILES           files written from environment variables, space-separated
@@ -47,25 +47,12 @@ desc "Prepare the project (version, CI files, dependencies, code generation)"
 lane :prepare do
   forge_resolve_version_metadata
 
-  forge_write_ci_files(ENV["FORGE_CI_FILES"])
   platform = lane_context[SharedValues::PLATFORM_NAME]
-  forge_write_ci_files(ENV["FORGE_#{platform.to_s.upcase}_CI_FILES"]) if platform
-
-  script = ENV["FORGE_PREPARE_SCRIPT"]
-  unless script.to_s.empty?
-    UI.message("Running #{script}...")
-    forge_sh("bash", script)
-  end
-
-  UI.message("Fetching Flutter dependencies...")
-  forge_sh("fvm flutter pub get")
-
-  if forge_bool_setting({}, nil, "FORGE_BUILD_RUNNER", false)
-    UI.message("Running build_runner...")
-    forge_sh("fvm dart run build_runner build --delete-conflicting-outputs")
-  end
+  forge_script("prepare.sh", env: platform ? { "FORGE_PLATFORM" => platform } : {})
 end
 
+# Runs scripts/test.sh, also usable without Ruby (GitLab CI).
+#
 # Options:
 #   coverage:true      generates coverage/lcov.info and the HTML reports (scripts/coverage_report.sh)
 #   send_metrics:true  then publishes the SonarQube analysis (send_metrics lane), coverage included.
@@ -76,49 +63,24 @@ end
 #   FORGE_COVERAGE_EXCLUDES  space-separated lcov patterns excluded from the filtered report
 desc "Run Flutter tests"
 lane :test do |options|
-  # Checked before the tests so that a missing token does not fail after a full test run
-  publish_metrics = options[:send_metrics] && forge_sonar_token?
-  coverage = options[:coverage] || publish_metrics
-
-  prepare
-
-  has_tests = Dir.exist?(File.join(FORGE_PROJECT_ROOT, "test"))
-  if has_tests
-    UI.message("Running Flutter tests...")
-    command = "fvm flutter test"
-    command += " --coverage" if coverage
-    forge_sh(command)
-
-    UI.success("Flutter tests passed 🎉")
-  else
-    # flutter test fails without a test/ folder: SonarQube still gets the analysis, without coverage
-    UI.important("No test/ folder: tests skipped")
-  end
-
-  if coverage && has_tests
-    UI.message("Generating coverage reports...")
-    forge_sh("bash #{File.join(FORGE_DIR, "scripts", "coverage_report.sh").shellescape}")
-    UI.success("Coverage reports generated in: coverage/ 🎉")
-  end
-
-  send_metrics if publish_metrics
+  args = []
+  args << "--coverage" if options[:coverage]
+  args << "--sonar" if options[:send_metrics]
+  forge_script("test.sh", *args)
 end
 
+# Runs scripts/analyze.sh, also usable without Ruby (GitLab CI).
+#
 # Optional settings (fastlane/.env.default or environment):
 #   FORGE_ANALYZE_ARGS  extra flutter analyze arguments (e.g. --no-fatal-infos)
 desc "Run the Flutter static analysis"
 lane :analyze do
-  prepare
-
-  UI.message("Running Flutter analyze...")
-  forge_sh("fvm flutter analyze #{ENV['FORGE_ANALYZE_ARGS']}".strip)
-
-  UI.success("Flutter analyze passed 🎉")
+  forge_script("analyze.sh")
 end
 
 # Publishes the SonarQube analysis of the current sources and of the existing
-# coverage/lcov.info. Usually run through `test send_metrics:true`, which runs
-# the tests with coverage first.
+# coverage/lcov.info (scripts/send_metrics.sh). Usually run through
+# `test send_metrics:true`, which runs the tests with coverage first.
 #
 # Static settings (project key, sources, exclusions, lcov path) are read by
 # sonar-scanner from the project's sonar-project.properties. sonar.projectVersion is
@@ -131,22 +93,7 @@ end
 #                       When unset outside CI, the current Git branch is analysed.
 desc "Send the metrics (analysis and coverage) to SonarQube"
 lane :send_metrics do
-  UI.user_error!("SONAR_TOKEN is not set") if ENV["SONAR_TOKEN"].to_s.empty?
-  UI.user_error!("sonar-scanner not found: install it (e.g. brew install sonar-scanner)") unless system("command -v sonar-scanner > /dev/null")
-  UI.important("coverage/lcov.info not found: the analysis will have no coverage") unless File.exist?(File.join(FORGE_PROJECT_ROOT, "coverage", "lcov.info"))
-
-  args = ENV["SONAR_SCANNER_ARGS"].to_s
-  args = "-Dsonar.branch.name=#{git_branch.shellescape}" if args.empty? && !is_ci
-  # Version of the analysis: the resolved app version, so that sonar-project.properties
-  # does not have to be bumped at each release
-  forge_resolve_version_metadata
-  unless ENV["APP_BUILD_NAME"].to_s.empty? || args.include?("sonar.projectVersion")
-    args = "#{args} -Dsonar.projectVersion=#{ENV['APP_BUILD_NAME'].shellescape}"
-  end
-
-  UI.message("Running SonarQube analysis...")
-  forge_sh("sonar-scanner #{args}".strip)
-  UI.success("SonarQube analysis published 🎉")
+  forge_script("send_metrics.sh")
 end
 
 # Options shared by build_android_release and build_ipa_release. Each one falls back to

@@ -8,11 +8,13 @@
 #     - local: .gitlab/forge.gitlab-ci.yml
 #
 # Every job only runs fastlane lanes or forge scripts: each step can be run locally.
+# The analysis and test jobs run the forge scripts directly, without Ruby.
 #
 # Settings (job or project variables):
 #   FORGE_FLUTTER_IMAGE           Linux image with Flutter, Android SDK and JDK
 #                                 (default: ghcr.io/cirruslabs/flutter:stable)
-#   FORGE_FASTLANE_ENV            fastlane --env <name> passed to the lanes (optional)
+#   FORGE_FASTLANE_ENV            fastlane --env <name> passed to the lanes, and env file
+#                                 loaded by the scripts (optional)
 #   FORGE_SONAR_SCANNER_VERSION   sonar-scanner CLI version of .forge_test_sonar
 #   FORGE_SONAR_SCANNER_SHA256    SHA-256 of its linux-x64 zip (change both together)
 #   FORGE_FVM_VERSION             FVM version installed by setup_fvm.sh (default: latest)
@@ -29,8 +31,9 @@ variables:
   variables:
     GIT_SUBMODULE_STRATEGY: normal
 
-# Flutter + fastlane on a Linux runner (Docker executor)
-.forge_flutter_linux:
+# Flutter on a Linux runner (Docker executor), without Ruby: for the jobs that only run
+# forge scripts (analyze.sh, test.sh)
+.forge_flutter:
   extends: .forge_base
   image: ${FORGE_FLUTTER_IMAGE}
   variables:
@@ -52,24 +55,30 @@ variables:
       - .gradle-home/wrapper/
       - vendor/bundle/
   before_script:
+    - bash fastlane/forge/scripts/setup_fvm.sh
+    - export PATH="${CI_PROJECT_DIR}/.fvm/flutter_sdk/bin:${PUB_CACHE}/bin:${PATH}"
+
+# Flutter + fastlane on a Linux runner (Docker executor): installs Ruby and the bundle
+.forge_flutter_linux:
+  extends: .forge_flutter
+  before_script:
     - |
       if ! command -v bundle > /dev/null; then
         apt-get update -qq
         apt-get install -y -qq ruby-full build-essential > /dev/null
       fi
     - bundle install --jobs 4 --retry 3
-    - bash fastlane/forge/scripts/setup_fvm.sh
-    - export PATH="${CI_PROJECT_DIR}/.fvm/flutter_sdk/bin:${PUB_CACHE}/bin:${PATH}"
+    - !reference [.forge_flutter, before_script]
 
 .forge_analyze:
-  extends: .forge_flutter_linux
+  extends: .forge_flutter
   script:
-    - bundle exec fastlane analyze ${FORGE_FASTLANE_ENV:+--env "$FORGE_FASTLANE_ENV"}
+    - bash fastlane/forge/scripts/analyze.sh
 
 # Tests with coverage, then SonarQube analysis (merge request or branch).
 # Requires SONAR_TOKEN (masked) and SONAR_HOST_URL (or sonar.host.url).
 .forge_test_sonar:
-  extends: .forge_flutter_linux
+  extends: .forge_flutter
   variables:
     GIT_DEPTH: "0"
     FORGE_SONAR_SCANNER_VERSION: 6.2.1.4610
@@ -91,7 +100,7 @@ variables:
           export SONAR_SCANNER_ARGS="-Dsonar.branch.name=${CI_COMMIT_REF_NAME}"
         fi
       fi
-    - bundle exec fastlane test send_metrics:true ${FORGE_FASTLANE_ENV:+--env "$FORGE_FASTLANE_ENV"}
+    - bash fastlane/forge/scripts/test.sh --sonar
   artifacts:
     when: always
     paths:
