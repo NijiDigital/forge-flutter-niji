@@ -36,6 +36,21 @@ else
 fi
 export PATH="$PATH:$PUB_BIN"
 
+# Reuse the Flutter SDK already on the PATH (e.g. cirruslabs/flutter image) when it is
+# the pinned version: `fvm install` then skips cloning and setting up the SDK.
+CACHED_SDK="${FVM_CACHE_PATH:-$HOME/fvm}/versions/$FLUTTER_VERSION"
+if [[ -L "$CACHED_SDK" && ! -e "$CACHED_SDK" ]]; then
+  rm "$CACHED_SDK"
+fi
+if [[ ! -e "$CACHED_SDK" ]] && FLUTTER_BIN="$(command -v flutter)"; then
+  SYSTEM_SDK="$(cd "$(dirname "$(readlink -f "$FLUTTER_BIN")")/.." && pwd)"
+  if grep -q "\"frameworkVersion\": *\"$FLUTTER_VERSION\"" "$SYSTEM_SDK/bin/cache/flutter.version.json" 2>/dev/null; then
+    echo "Reusing the Flutter SDK of $SYSTEM_SDK"
+    mkdir -p "$(dirname "$CACHED_SDK")"
+    ln -s "$SYSTEM_SDK" "$CACHED_SDK"
+  fi
+fi
+
 fvm install "$FLUTTER_VERSION"
 
 # A restored CI cache can leave .fvm/flutter_sdk behind and block `fvm use`.

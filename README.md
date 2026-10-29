@@ -246,7 +246,7 @@ Recommended setup: analysis, tests, SonarQube and Android builds run on GitLab C
 | --- | --- |
 | `ci/gitlab/forge.gitlab-ci.yml` | Hidden jobs to extend: `.forge_flutter_linux`, `.forge_analyze`, `.forge_test_sonar`, `.forge_android_build`, `.forge_codemagic` (former name `.forge_codemagic_ios`, still accepted) |
 | `ci/codemagic/codemagic.template.yaml` | iOS workflow template to copy to the project's `codemagic.yaml` |
-| `scripts/setup_fvm.sh` | Installs the Flutter version of `.fvmrc` with FVM (GitLab and Codemagic) |
+| `scripts/setup_fvm.sh` | Installs the Flutter version of `.fvmrc` with FVM (GitLab and Codemagic), reusing the SDK on the `PATH` when it is that version (e.g. `cirruslabs/flutter:<version>` image) |
 | `scripts/codemagic_build.sh` | Triggers a Codemagic workflow, follows it and downloads its artifacts |
 
 GitLab resolves includes before cloning the repository, so it cannot read a file from a submodule. Copy the template to the project and include the copy:
