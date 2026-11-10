@@ -228,13 +228,35 @@ signingConfigs {
 
 `bundle exec fastlane test send_metrics:true` runs the tests with coverage, then the `send_metrics` lane. `SONAR_TOKEN` is checked **before** the tests: if it is missing, the upload is skipped locally (a warning is shown, tests still run) and the lane fails on CI.
 
-The `send_metrics` lane can also be run on its own, on previously generated coverage. It reads the static configuration from the project's `sonar-project.properties`: key, sources, exclusions, `sonar.dart.lcov.reportPaths=coverage/lcov.info`. `sonar.projectVersion` is passed from the resolved app version (`APP_BUILD_NAME`, see `version_metadata`): do not set it in `sonar-project.properties`. `sonar-scanner` must be installed (`brew install sonar-scanner` locally). Never commit the token in `sonar-project.properties`.
+The `send_metrics` lane can also be run on its own, on previously generated coverage. `sonar-scanner` must be installed (`brew install sonar-scanner` locally).
+
+The **whole SonarQube configuration lives in the project's `sonar-project.properties`**, at the project root: the forge passes no `sonar-scanner` argument, locally or on CI. Values that change at each run are read from the environment with `${env.VAR}`:
+
+```properties
+sonar.projectKey=<project key>
+sonar.sources=lib,pubspec.yaml
+sonar.tests=test
+sonar.exclusions=analysis_options.yaml
+sonar.dart.lcov.reportPaths=coverage/lcov.info
+
+# Analysis version: the resolved app version (APP_BUILD_NAME, see version_metadata)
+sonar.projectVersion=${env.APP_BUILD_NAME}
+# Branch analysis: CI_COMMIT_BRANCH on CI (empty in merge request and tag pipelines),
+# the current Git branch locally
+sonar.branch.name=${env.FORGE_SONAR_BRANCH}
+# Merge request analysis: GitLab variables, empty outside merge request pipelines
+sonar.pullrequest.key=${env.CI_MERGE_REQUEST_IID}
+sonar.pullrequest.branch=${env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}
+sonar.pullrequest.base=${env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME}
+```
+
+`sonar-scanner` resolves an undefined `${env.VAR}` to an empty value: in a merge request pipeline only the `sonar.pullrequest.*` properties have a value, in a branch pipeline only `sonar.branch.name`. Never commit the token in `sonar-project.properties`.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SONAR_TOKEN` | _(required)_ | SonarQube token |
 | `SONAR_HOST_URL` | _(none)_ | Server URL (or `sonar.host.url` in `sonar-project.properties`) |
-| `SONAR_SCANNER_ARGS` | _(empty)_ | Extra `sonar-scanner` arguments (on CI: branch or MR analysis). When empty outside CI, the current Git branch is analyzed |
+| `FORGE_SONAR_BRANCH` | `CI_COMMIT_BRANCH` on CI, current Git branch locally | Branch read by `sonar.branch.name=${env.FORGE_SONAR_BRANCH}`. Set it to override |
 
 ### Coverage report
 
@@ -294,7 +316,7 @@ ios_release:
     - if: $CI_COMMIT_TAG
 ```
 
-`.forge_flutter` runs `setup_fvm.sh` (which reuses the image's Flutter SDK when it is the `.fvmrc` version) and caches the pub and FVM folders. `.forge_analyze` and `.forge_test_sonar` extend it and run the forge scripts directly, without Ruby. `.forge_test_sonar` downloads `sonar-scanner` when the image does not provide it (checked against `FORGE_SONAR_SCANNER_SHA256`) and computes `SONAR_SCANNER_ARGS` for merge requests and branches.
+`.forge_flutter` runs `setup_fvm.sh` (which reuses the image's Flutter SDK when it is the `.fvmrc` version) and caches the pub and FVM folders. `.forge_analyze` and `.forge_test_sonar` extend it and run the forge scripts directly, without Ruby. `.forge_test_sonar` downloads `sonar-scanner` when the image does not provide it (checked against `FORGE_SONAR_SCANNER_SHA256`); branch and merge request analyses are configured by the project's `sonar-project.properties`.
 
 ### Codemagic builds triggered from GitLab CI
 
