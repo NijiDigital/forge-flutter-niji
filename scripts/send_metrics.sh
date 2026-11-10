@@ -5,15 +5,19 @@
 #
 # Usage (from any directory): bash fastlane/forge/scripts/send_metrics.sh
 #
-# Static settings (project key, sources, exclusions, lcov path) are read by
-# sonar-scanner from the project's sonar-project.properties. sonar.projectVersion is
-# passed from APP_BUILD_NAME (see common.sh).
+# The whole SonarQube configuration lives in the project's sonar-project.properties:
+# key, sources, exclusions, lcov path, and the per-run values read from the environment
+# with ${env.VAR} (version, branch, merge request). No sonar-scanner argument is passed.
 #
 # Settings (environment):
 #   SONAR_TOKEN         SonarQube token (required)
-#   SONAR_HOST_URL      SonarQube URL
-#   SONAR_SCANNER_ARGS  extra sonar-scanner arguments (CI: branch / merge request analysis).
-#                       When unset outside CI, the current Git branch is analysed.
+#   SONAR_HOST_URL      SonarQube URL (or sonar.host.url in sonar-project.properties)
+#
+# Exported for sonar-project.properties:
+#   APP_BUILD_NAME      analysis version, ${env.APP_BUILD_NAME} (see common.sh)
+#   FORGE_SONAR_BRANCH  branch to analyse, ${env.FORGE_SONAR_BRANCH}: CI_COMMIT_BRANCH on
+#                       CI (empty in merge request and tag pipelines), the current Git
+#                       branch locally. Kept when already set.
 
 set -euo pipefail
 # shellcheck source=common.sh
@@ -31,17 +35,21 @@ if [[ ! -f coverage/lcov.info ]]; then
   forge_log "WARNING: coverage/lcov.info not found: the analysis will have no coverage"
 fi
 
-args=()
-read -ra args <<< "${SONAR_SCANNER_ARGS:-}"
-if [[ ${#args[@]} -eq 0 ]] && ! forge_is_ci; then
-  args=("-Dsonar.branch.name=$(git rev-parse --abbrev-ref HEAD)")
+# Merge request pipelines: sonar.pullrequest.* read the GitLab CI_MERGE_REQUEST_*
+# variables directly. Branch pipelines and local runs: sonar.branch.name reads
+# FORGE_SONAR_BRANCH.
+if [[ -z "${FORGE_SONAR_BRANCH+set}" ]]; then
+  if forge_is_ci; then
+    export FORGE_SONAR_BRANCH="${CI_COMMIT_BRANCH:-}"
+  else
+    FORGE_SONAR_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+    export FORGE_SONAR_BRANCH
+  fi
 fi
-# Version of the analysis: the resolved app version, so that sonar-project.properties
-# does not have to be bumped at each release
-if [[ -n "${APP_BUILD_NAME:-}" && "${SONAR_SCANNER_ARGS:-}" != *sonar.projectVersion* ]]; then
-  args+=("-Dsonar.projectVersion=$APP_BUILD_NAME")
+if ! grep -q 'env\.FORGE_SONAR_BRANCH' sonar-project.properties 2>/dev/null; then
+  forge_log "WARNING: sonar-project.properties does not read \${env.FORGE_SONAR_BRANCH}: branch and merge request analyses are disabled (see the forge README)"
 fi
 
 forge_log "Running SonarQube analysis..."
-sonar-scanner ${args[@]+"${args[@]}"}
+sonar-scanner
 forge_log "SonarQube analysis published"
