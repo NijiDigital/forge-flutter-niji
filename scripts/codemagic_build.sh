@@ -2,7 +2,10 @@
 # Trigger a Codemagic workflow from GitLab CI through the Codemagic API, wait for it
 # to complete and download its artefacts.
 #
-# Usage: fastlane/forge/scripts/codemagic_build.sh <workflowId> [artifacts_dir]
+# Usage: fastlane/forge/scripts/codemagic_build.sh <workflowId> [artifacts_dir|-]
+#   artifacts_dir  folder the build artifacts are downloaded into
+#                  (default: codemagic-artifacts); "-" downloads nothing, the
+#                  artifacts stay on Codemagic
 #
 # Required (GitLab > Settings > CI/CD > Variables):
 #   CODEMAGIC_API_TOKEN  Codemagic API token (masked)
@@ -16,7 +19,7 @@
 
 set -eu
 
-WORKFLOW_ID="${1:?Usage: $0 <workflowId> [artifacts_dir]}"
+WORKFLOW_ID="${1:?Usage: $0 <workflowId> [artifacts_dir|-]}"
 ARTIFACTS_DIR="${2:-codemagic-artifacts}"
 API="https://api.codemagic.io"
 POLL_INTERVAL="${CODEMAGIC_POLL_INTERVAL:-30}"
@@ -89,13 +92,15 @@ while true; do
   sleep "${POLL_INTERVAL}"
 done
 
-# Download artefacts (also on failure, when some were produced)
-mkdir -p "${ARTIFACTS_DIR}"
-printf '%s' "${BUILD_JSON}" | jq -r '.build.artefacts[]? | [.name, .url] | @tsv' |
-  while IFS="$(printf '\t')" read -r NAME URL; do
-    echo "Downloading ${NAME}..."
-    curl -sS --fail -L -H "x-auth-token: ${CODEMAGIC_API_TOKEN}" -o "${ARTIFACTS_DIR}/${NAME}" "${URL}"
-  done
+# Download artefacts (also on failure, when some were produced). "-" keeps them on Codemagic.
+if [ "${ARTIFACTS_DIR}" != "-" ]; then
+  mkdir -p "${ARTIFACTS_DIR}"
+  printf '%s' "${BUILD_JSON}" | jq -r '.build.artefacts[]? | [.name, .url] | @tsv' |
+    while IFS="$(printf '\t')" read -r NAME URL; do
+      echo "Downloading ${NAME}..."
+      curl -sS --fail -L -H "x-auth-token: ${CODEMAGIC_API_TOKEN}" -o "${ARTIFACTS_DIR}/${NAME}" "${URL}"
+    done
+fi
 
 # "warning": the build finished but a non-blocking step (e.g. publishing) reported a problem
 if [ "${STATUS}" = "warning" ]; then

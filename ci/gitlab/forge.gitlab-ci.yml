@@ -75,14 +75,10 @@ variables:
         export PATH="/opt/sonar-scanner-${FORGE_SONAR_SCANNER_VERSION}-linux-x64/bin:${PATH}"
       fi
     - bash fastlane/forge/scripts/test.sh --sonar
-  artifacts:
-    when: always
-    paths:
-      - coverage/coverage_html.zip
-    expire_in: 7 days
 
-# Build delegated to a Codemagic workflow (iOS on macOS, Android on Linux...), whose
-# artifacts are downloaded into codemagic-artifacts/. Set CODEMAGIC_WORKFLOW_ID on the job.
+# Build delegated to a Codemagic workflow (iOS on macOS, Android on Linux...). The job
+# only triggers and follows the build: the artifacts stay on Codemagic. Set
+# CODEMAGIC_WORKFLOW_ID on the job.
 .forge_codemagic:
   extends: .forge_base
   image: alpine:3.20
@@ -90,7 +86,7 @@ variables:
   before_script:
     - apk add --no-cache curl jq > /dev/null
   script:
-    - sh fastlane/forge/scripts/codemagic_build.sh "$CODEMAGIC_WORKFLOW_ID" codemagic-artifacts
+    - sh fastlane/forge/scripts/codemagic_build.sh "$CODEMAGIC_WORKFLOW_ID" -
   after_script:
     # A canceled GitLab job also cancels the Codemagic build
     - |
@@ -98,11 +94,6 @@ variables:
         apk add --no-cache curl > /dev/null
         curl -sS -X POST -H "x-auth-token: ${CODEMAGIC_API_TOKEN}" "https://api.codemagic.io/builds/$(cat .codemagic_build_id)/cancel" || true
       fi
-  artifacts:
-    when: always
-    paths:
-      - codemagic-artifacts/
-    expire_in: 30 days
 
 # Deprecated: former name of .forge_codemagic, kept for the projects that extend it.
 .forge_codemagic_ios:

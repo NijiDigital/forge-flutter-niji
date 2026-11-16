@@ -5,19 +5,18 @@
 #
 # Usage (from any directory): bash fastlane/forge/scripts/send_metrics.sh
 #
-# The whole SonarQube configuration lives in the project's sonar-project.properties:
-# key, sources, exclusions, lcov path, and the per-run values read from the environment
-# with ${env.VAR} (version, branch, merge request). No sonar-scanner argument is passed.
+# The static SonarQube configuration (key, sources, exclusions, lcov path, version)
+# lives in the project's sonar-project.properties. The analysis target is decided
+# here and passed as scanner arguments: a merge request when the pipeline is one, the
+# branch otherwise. The project file must not declare sonar.branch.name or
+# sonar.pullrequest.*: declaring both makes SonarQube run a branch analysis, even when
+# sonar.branch.name is empty.
 #
 # Settings (environment):
 #   SONAR_TOKEN         SonarQube token (required)
 #   SONAR_HOST_URL      SonarQube URL (or sonar.host.url in sonar-project.properties)
-#
-# Exported for sonar-project.properties:
-#   APP_BUILD_NAME      analysis version, ${env.APP_BUILD_NAME} (see common.sh)
-#   FORGE_SONAR_BRANCH  branch to analyse, ${env.FORGE_SONAR_BRANCH}: CI_COMMIT_BRANCH on
-#                       CI (empty in merge request and tag pipelines), the current Git
-#                       branch locally. Kept when already set.
+#   FORGE_SONAR_BRANCH  branch analysed outside a merge request: CI_COMMIT_BRANCH on CI,
+#                       the current Git branch locally. Kept when already set.
 
 set -euo pipefail
 # shellcheck source=common.sh
@@ -35,21 +34,36 @@ if [[ ! -f coverage/lcov.info ]]; then
   forge_log "WARNING: coverage/lcov.info not found: the analysis will have no coverage"
 fi
 
-# Merge request pipelines: sonar.pullrequest.* read the GitLab CI_MERGE_REQUEST_*
-# variables directly. Branch pipelines and local runs: sonar.branch.name reads
-# FORGE_SONAR_BRANCH.
-if [[ -z "${FORGE_SONAR_BRANCH+set}" ]]; then
-  if forge_is_ci; then
-    export FORGE_SONAR_BRANCH="${CI_COMMIT_BRANCH:-}"
+scanner_args=()
+
+if [[ -n "${CI_MERGE_REQUEST_IID:-}" ]]; then
+  forge_log "Analysis target: merge request !${CI_MERGE_REQUEST_IID}"
+  scanner_args+=("-Dsonar.pullrequest.key=${CI_MERGE_REQUEST_IID}")
+  scanner_args+=("-Dsonar.pullrequest.branch=${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-}")
+  scanner_args+=("-Dsonar.pullrequest.base=${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-}")
+else
+  if [[ -z "${FORGE_SONAR_BRANCH+set}" ]]; then
+    if forge_is_ci; then
+      export FORGE_SONAR_BRANCH="${CI_COMMIT_BRANCH:-}"
+    else
+      FORGE_SONAR_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+      export FORGE_SONAR_BRANCH
+    fi
+  fi
+  if [[ -n "${FORGE_SONAR_BRANCH:-}" ]]; then
+    forge_log "Analysis target: branch ${FORGE_SONAR_BRANCH}"
+    scanner_args+=("-Dsonar.branch.name=${FORGE_SONAR_BRANCH}")
   else
-    FORGE_SONAR_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-    export FORGE_SONAR_BRANCH
+    forge_log "Analysis target: default branch"
   fi
 fi
-if ! grep -q 'env\.FORGE_SONAR_BRANCH' sonar-project.properties 2>/dev/null; then
-  forge_log "WARNING: sonar-project.properties does not read \${env.FORGE_SONAR_BRANCH}: branch and merge request analyses are disabled (see the forge README)"
+
+# Guard: the project file must stay free of the analysis target properties.
+if grep -qE '^[[:space:]]*sonar\.(branch\.name|pullrequest\.)' sonar-project.properties 2>/dev/null; then
+  forge_log "WARNING: sonar-project.properties declares sonar.branch.name or sonar.pullrequest.*:"
+  forge_log "WARNING: remove these lines, the forge passes them (see the forge README)"
 fi
 
 forge_log "Running SonarQube analysis..."
-sonar-scanner
+sonar-scanner ${scanner_args[@]+"${scanner_args[@]}"}
 forge_log "SonarQube analysis published"
