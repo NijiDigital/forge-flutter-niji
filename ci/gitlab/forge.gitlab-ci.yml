@@ -16,6 +16,7 @@
 #   FORGE_FASTLANE_ENV            fastlane/.env.<name> loaded by the scripts, like
 #                                 fastlane --env <name> (optional)
 #   FORGE_SONAR_SCANNER_VERSION   sonar-scanner CLI version of .forge_test_sonar
+#                                 and .forge_checks
 #   FORGE_SONAR_SCANNER_SHA256    SHA-256 of its linux-x64 zip (change both together)
 #   FORGE_FVM_VERSION             FVM version installed by setup_fvm.sh (default: latest)
 #   CODEMAGIC_WORKFLOW_ID         workflow triggered by .forge_codemagic
@@ -56,8 +57,7 @@ variables:
   script:
     - bash fastlane/forge/scripts/analyze.sh
 
-# Tests with coverage, then SonarQube analysis (merge request or branch), configured
-# entirely by the project's sonar-project.properties.
+# Tests with coverage, then the SonarQube analysis of the merge request or branch.
 # Requires SONAR_TOKEN (masked) and SONAR_HOST_URL (or sonar.host.url).
 .forge_test_sonar:
   extends: .forge_flutter
@@ -66,15 +66,22 @@ variables:
     FORGE_SONAR_SCANNER_VERSION: 6.2.1.4610
     FORGE_SONAR_SCANNER_SHA256: 0b8a3049f0bd5de7abc1582c78c233960d3d4ed7cc983a1d1635e8552f8bb439
   script:
-    - |
-      if ! command -v sonar-scanner > /dev/null; then
-        command -v unzip > /dev/null || (apt-get update -qq && apt-get install -y -qq unzip > /dev/null)
-        curl -sSLo /tmp/sonar-scanner.zip "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${FORGE_SONAR_SCANNER_VERSION}-linux-x64.zip"
-        echo "${FORGE_SONAR_SCANNER_SHA256}  /tmp/sonar-scanner.zip" | sha256sum -c -
-        unzip -q /tmp/sonar-scanner.zip -d /opt
-        export PATH="/opt/sonar-scanner-${FORGE_SONAR_SCANNER_VERSION}-linux-x64/bin:${PATH}"
-      fi
+    - export PATH="$(bash fastlane/forge/scripts/install_sonar_scanner.sh):${PATH}"
     - bash fastlane/forge/scripts/test.sh --sonar
+
+# Static analysis and SonarQube upload in a single job, so that prepare (pub get and
+# build_runner) runs once instead of once per job. Use it when the project has nothing
+# to test; with tests, .forge_test_sonar runs them and uploads the coverage.
+.forge_checks:
+  extends: .forge_flutter
+  variables:
+    GIT_DEPTH: "0"
+    FORGE_SONAR_SCANNER_VERSION: 6.2.1.4610
+    FORGE_SONAR_SCANNER_SHA256: 0b8a3049f0bd5de7abc1582c78c233960d3d4ed7cc983a1d1635e8552f8bb439
+  script:
+    - export PATH="$(bash fastlane/forge/scripts/install_sonar_scanner.sh):${PATH}"
+    - bash fastlane/forge/scripts/analyze.sh
+    - bash fastlane/forge/scripts/send_metrics.sh
 
 # Build delegated to a Codemagic workflow (iOS on macOS, Android on Linux...). The job
 # only triggers and follows the build: the artifacts stay on Codemagic. Set
