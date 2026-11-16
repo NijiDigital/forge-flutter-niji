@@ -230,7 +230,7 @@ signingConfigs {
 
 The `send_metrics` lane can also be run on its own, on previously generated coverage. `sonar-scanner` must be installed (`brew install sonar-scanner` locally).
 
-The **whole SonarQube configuration lives in the project's `sonar-project.properties`**, at the project root: the forge passes no `sonar-scanner` argument, locally or on CI. Values that change at each run are read from the environment with `${env.VAR}`:
+The **static SonarQube configuration lives in the project's `sonar-project.properties`**, at the project root: key, sources, exclusions, coverage path, and the version, read from the environment with `${env.VAR}`. The analysis target (merge request or branch) is not in the file: the forge decides it and passes the scanner arguments.
 
 ```properties
 sonar.projectKey=<project key>
@@ -241,22 +241,17 @@ sonar.dart.lcov.reportPaths=coverage/lcov.info
 
 # Analysis version: the resolved app version (APP_BUILD_NAME, see version_metadata)
 sonar.projectVersion=${env.APP_BUILD_NAME}
-# Branch analysis: CI_COMMIT_BRANCH on CI (empty in merge request and tag pipelines),
-# the current Git branch locally
-sonar.branch.name=${env.FORGE_SONAR_BRANCH}
-# Merge request analysis: GitLab variables, empty outside merge request pipelines
-sonar.pullrequest.key=${env.CI_MERGE_REQUEST_IID}
-sonar.pullrequest.branch=${env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME}
-sonar.pullrequest.base=${env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME}
 ```
 
-`sonar-scanner` resolves an undefined `${env.VAR}` to an empty value: in a merge request pipeline only the `sonar.pullrequest.*` properties have a value, in a branch pipeline only `sonar.branch.name`. Never commit the token in `sonar-project.properties`.
+Do not declare `sonar.branch.name` or `sonar.pullrequest.*` in the file: `send_metrics.sh` passes them, and declaring both makes SonarQube run a branch analysis even when `sonar.branch.name` is empty. Never commit the token in `sonar-project.properties`.
+
+The target is a merge request when the pipeline is one (`CI_MERGE_REQUEST_IID` is set), the current branch otherwise.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SONAR_TOKEN` | _(required)_ | SonarQube token |
 | `SONAR_HOST_URL` | _(none)_ | Server URL (or `sonar.host.url` in `sonar-project.properties`) |
-| `FORGE_SONAR_BRANCH` | `CI_COMMIT_BRANCH` on CI, current Git branch locally | Branch read by `sonar.branch.name=${env.FORGE_SONAR_BRANCH}`. Set it to override |
+| `FORGE_SONAR_BRANCH` | `CI_COMMIT_BRANCH` on CI, current Git branch locally | Branch analysed outside a merge request. Set it to override |
 
 ### Coverage report
 
@@ -266,7 +261,7 @@ With `coverage:true`, the `test` lane then runs `scripts/coverage_report.sh` (in
 | --- | --- |
 | `html/` | Full HTML report |
 | `lcov_filtered.info`, `html_filtered/` | Filtered report (if `FORGE_COVERAGE_EXCLUDES` is set) |
-| `coverage_html.zip` | Zipped HTML reports (CI artifact) |
+| `coverage_html.zip` | Zipped HTML reports |
 
 Coverage summaries are printed to the console.
 
@@ -316,11 +311,11 @@ ios_release:
     - if: $CI_COMMIT_TAG
 ```
 
-`.forge_flutter` runs `setup_fvm.sh` (which reuses the image's Flutter SDK when it is the `.fvmrc` version) and caches the pub and FVM folders. `.forge_analyze` and `.forge_test_sonar` extend it and run the forge scripts directly, without Ruby. `.forge_test_sonar` downloads `sonar-scanner` when the image does not provide it (checked against `FORGE_SONAR_SCANNER_SHA256`); branch and merge request analyses are configured by the project's `sonar-project.properties`.
+`.forge_flutter` runs `setup_fvm.sh` (which reuses the image's Flutter SDK when it is the `.fvmrc` version) and caches the pub and FVM folders. `.forge_analyze` and `.forge_test_sonar` extend it and run the forge scripts directly, without Ruby. `.forge_test_sonar` downloads `sonar-scanner` when the image does not provide it (checked against `FORGE_SONAR_SCANNER_SHA256`), and the analysis target (merge request or branch) is passed by `send_metrics.sh`. The GitLab jobs keep no artifacts: coverage reports are printed, build artifacts stay on Codemagic.
 
 ### Codemagic builds triggered from GitLab CI
 
-`scripts/codemagic_build.sh <workflowId> [artifacts_dir]` triggers a Codemagic workflow through the API on the pipeline's branch (or tag), follows its execution and downloads its artifacts (default: `codemagic-artifacts/`). The job fails if the build does not end with the `finished` or `warning` status. `.forge_codemagic` also cancels the Codemagic build when the GitLab job is canceled.
+`scripts/codemagic_build.sh <workflowId> [artifacts_dir|-]` triggers a Codemagic workflow through the API on the pipeline's branch (or tag) and follows its execution. The artifacts stay on Codemagic: the GitLab jobs keep none (`-`), and an explicit folder downloads them into it. The job fails if the build does not end with the `finished` or `warning` status. `.forge_codemagic` also cancels the Codemagic build when the GitLab job is canceled.
 
 Required CI/CD variables: `CODEMAGIC_API_TOKEN` (masked), `CODEMAGIC_APP_ID`. Optional: `CODEMAGIC_POLL_INTERVAL` (seconds, default 30).
 
