@@ -271,10 +271,11 @@ Recommended setup: analysis, tests and SonarQube run on GitLab CI (Linux runner)
 
 | File | Purpose |
 | --- | --- |
-| `ci/gitlab/forge.gitlab-ci.yml` | Hidden jobs to extend: `.forge_flutter`, `.forge_analyze`, `.forge_test_sonar`, `.forge_codemagic` (former name `.forge_codemagic_ios`, still accepted) |
+| `ci/gitlab/forge.gitlab-ci.yml` | Hidden jobs to extend: `.forge_flutter`, `.forge_analyze`, `.forge_test_sonar`, `.forge_checks`, `.forge_codemagic` (former name `.forge_codemagic_ios`, still accepted) |
 | `ci/codemagic/codemagic.template.yaml` | iOS workflow template to copy to the project's `codemagic.yaml` |
 | `scripts/setup_fvm.sh` | Installs the Flutter version of `.fvmrc` with FVM (GitLab and Codemagic), reusing the SDK on the `PATH` when it is that version (e.g. `cirruslabs/flutter:<version>` image) |
 | `scripts/analyze.sh`, `scripts/test.sh`, `scripts/send_metrics.sh`, `scripts/prepare.sh` | Lanes of the same name, without Ruby (`common.sh` loads the `.env` files and resolves the version) |
+| `scripts/install_sonar_scanner.sh` | Installs the sonar-scanner CLI when the image does not provide it, and prints the folder to add to the `PATH` |
 | `scripts/codemagic_build.sh` | Triggers a Codemagic workflow, follows it and downloads its artifacts |
 
 GitLab resolves includes before cloning the repository, so it cannot read a file from a submodule. Copy the template to the project and include the copy:
@@ -296,6 +297,12 @@ analyze:
   variables:
     FORGE_FASTLANE_ENV: dev
 
+# Analysis and SonarQube in one job, for a project without tests
+checks:
+  extends: .forge_checks
+  variables:
+    FORGE_FASTLANE_ENV: dev
+
 android_release:
   extends: .forge_codemagic
   variables:
@@ -311,7 +318,9 @@ ios_release:
     - if: $CI_COMMIT_TAG
 ```
 
-`.forge_flutter` runs `setup_fvm.sh` (which reuses the image's Flutter SDK when it is the `.fvmrc` version) and caches the pub and FVM folders. `.forge_analyze` and `.forge_test_sonar` extend it and run the forge scripts directly, without Ruby. `.forge_test_sonar` downloads `sonar-scanner` when the image does not provide it (checked against `FORGE_SONAR_SCANNER_SHA256`), and the analysis target (merge request or branch) is passed by `send_metrics.sh`. The GitLab jobs keep no artifacts: coverage reports are printed, build artifacts stay on Codemagic.
+`.forge_flutter` runs `setup_fvm.sh` (which reuses the image's Flutter SDK when it is the `.fvmrc` version) and caches the pub and FVM folders. `.forge_analyze`, `.forge_test_sonar` and `.forge_checks` extend it and run the forge scripts directly, without Ruby. `install_sonar_scanner.sh` installs `sonar-scanner` when the image does not provide it (checked against `FORGE_SONAR_SCANNER_SHA256`), and the analysis target (merge request or branch) is passed by `send_metrics.sh`.
+
+`.forge_test_sonar` runs the tests with coverage, then the analysis. `.forge_checks` runs the analysis and the upload without the tests: `prepare` (pub get and build_runner) then runs once instead of once per job, which saves a minute on every pipeline when the project has nothing to test. The GitLab jobs keep no artifacts: coverage reports are printed, build artifacts stay on Codemagic.
 
 ### Codemagic builds triggered from GitLab CI
 
