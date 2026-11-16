@@ -56,7 +56,8 @@ variables:
   script:
     - bash fastlane/forge/scripts/analyze.sh
 
-# Tests with coverage, then SonarQube analysis (merge request or branch).
+# Tests with coverage, then SonarQube analysis (merge request or branch), configured
+# entirely by the project's sonar-project.properties.
 # Requires SONAR_TOKEN (masked) and SONAR_HOST_URL (or sonar.host.url).
 .forge_test_sonar:
   extends: .forge_flutter
@@ -72,14 +73,6 @@ variables:
         echo "${FORGE_SONAR_SCANNER_SHA256}  /tmp/sonar-scanner.zip" | sha256sum -c -
         unzip -q /tmp/sonar-scanner.zip -d /opt
         export PATH="/opt/sonar-scanner-${FORGE_SONAR_SCANNER_VERSION}-linux-x64/bin:${PATH}"
-      fi
-    - |
-      if [ -z "${SONAR_SCANNER_ARGS:-}" ]; then
-        if [ -n "${CI_MERGE_REQUEST_IID:-}" ]; then
-          export SONAR_SCANNER_ARGS="-Dsonar.pullrequest.key=${CI_MERGE_REQUEST_IID} -Dsonar.pullrequest.branch=${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME} -Dsonar.pullrequest.base=${CI_MERGE_REQUEST_TARGET_BRANCH_NAME}"
-        else
-          export SONAR_SCANNER_ARGS="-Dsonar.branch.name=${CI_COMMIT_REF_NAME}"
-        fi
       fi
     - bash fastlane/forge/scripts/test.sh --sonar
   artifacts:

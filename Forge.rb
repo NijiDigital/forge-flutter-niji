@@ -82,15 +82,13 @@ end
 # coverage/lcov.info (scripts/send_metrics.sh). Usually run through
 # `test send_metrics:true`, which runs the tests with coverage first.
 #
-# Static settings (project key, sources, exclusions, lcov path) are read by
-# sonar-scanner from the project's sonar-project.properties. sonar.projectVersion is
-# passed from APP_BUILD_NAME (see version_metadata).
+# The whole configuration lives in the project's sonar-project.properties, version,
+# branch and merge request included (${env.APP_BUILD_NAME}, ${env.FORGE_SONAR_BRANCH},
+# ${env.CI_MERGE_REQUEST_*}): see the README, "SonarQube analysis".
 #
 # Settings (environment):
 #   SONAR_TOKEN         SonarQube token (required)
-#   SONAR_HOST_URL      SonarQube URL
-#   SONAR_SCANNER_ARGS  extra sonar-scanner arguments (CI: branch / merge request analysis).
-#                       When unset outside CI, the current Git branch is analysed.
+#   SONAR_HOST_URL      SonarQube URL (or sonar.host.url in sonar-project.properties)
 desc "Send the metrics (analysis and coverage) to SonarQube"
 lane :send_metrics do
   forge_script("send_metrics.sh")
