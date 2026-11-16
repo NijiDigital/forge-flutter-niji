@@ -31,14 +31,19 @@ VERSION="${FORGE_SONAR_SCANNER_VERSION:?FORGE_SONAR_SCANNER_VERSION is not set}"
 SHA256="${FORGE_SONAR_SCANNER_SHA256:?FORGE_SONAR_SCANNER_SHA256 is not set}"
 
 INSTALL_DIR="/opt/sonar-scanner-${VERSION}-linux-x64"
-echo "[forge] Installing sonar-scanner ${VERSION}..." >&2
-if ! command -v unzip > /dev/null; then
-  apt-get update -qq
-  apt-get install -y -qq unzip > /dev/null
-fi
-curl -sSLo /tmp/sonar-scanner.zip "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${VERSION}-linux-x64.zip"
-echo "${SHA256}  /tmp/sonar-scanner.zip" | sha256sum -c -
-unzip -q /tmp/sonar-scanner.zip -d /opt
-echo "[forge] sonar-scanner installed in ${INSTALL_DIR}" >&2
+
+# stdout carries only the folder: the whole installation talks on stderr, so that
+# nothing else (a checksum line, a tool banner) ends up in the caller's PATH.
+{
+  echo "[forge] Installing sonar-scanner ${VERSION}..."
+  if ! command -v unzip > /dev/null; then
+    apt-get update -qq
+    apt-get install -y -qq unzip > /dev/null
+  fi
+  curl -sSLo /tmp/sonar-scanner.zip "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${VERSION}-linux-x64.zip"
+  echo "${SHA256}  /tmp/sonar-scanner.zip" | sha256sum -c -
+  unzip -q /tmp/sonar-scanner.zip -d /opt
+  echo "[forge] sonar-scanner installed in ${INSTALL_DIR}"
+} 1>&2
 
 echo "${INSTALL_DIR}/bin"
