@@ -1,0 +1,109 @@
+# Hidden GitLab CI jobs of the Flutter forge, to extend from the project's .gitlab-ci.yml.
+#
+# GitLab resolves includes before cloning, so it cannot read this file from the
+# fastlane/forge submodule: copy it to the project's .gitlab/ folder (again after each
+# forge upgrade) and include the copy:
+#
+#   include:
+#     - local: .gitlab/forge.gitlab-ci.yml
+#
+# Every job only runs forge scripts, without Ruby: each step can be run locally. The
+# builds run fastlane on Codemagic only (.forge_codemagic).
+#
+# Settings (job or project variables):
+#   FORGE_FLUTTER_IMAGE           Linux image with Flutter, Android SDK and JDK
+#                                 (default: ghcr.io/cirruslabs/flutter:stable)
+#   FORGE_FASTLANE_ENV            fastlane/.env.<name> loaded by the scripts, like
+#                                 fastlane --env <name> (optional)
+#   FORGE_SONAR_SCANNER_VERSION   sonar-scanner CLI version of .forge_test_sonar
+#   FORGE_SONAR_SCANNER_SHA256    SHA-256 of its linux-x64 zip (change both together)
+#   FORGE_FVM_VERSION             FVM version installed by setup_fvm.sh (default: latest)
+#   CODEMAGIC_WORKFLOW_ID         workflow triggered by .forge_codemagic
+#   CODEMAGIC_API_TOKEN, CODEMAGIC_APP_ID  see scripts/codemagic_build.sh
+
+# Global defaults: the project's global variables override them. A job-level default
+# would win over the project's global value.
+variables:
+  FORGE_FLUTTER_IMAGE: ghcr.io/cirruslabs/flutter:stable
+
+.forge_base:
+  interruptible: true
+  variables:
+    GIT_SUBMODULE_STRATEGY: normal
+
+# Flutter on a Linux runner (Docker executor), without Ruby
+.forge_flutter:
+  extends: .forge_base
+  image: ${FORGE_FLUTTER_IMAGE}
+  variables:
+    LANG: C.UTF-8
+    LC_ALL: C.UTF-8
+    PUB_CACHE: ${CI_PROJECT_DIR}/.pub-cache
+    FVM_CACHE_PATH: ${CI_PROJECT_DIR}/.fvm-cache
+  cache:
+    key:
+      files:
+        - pubspec.lock
+    paths:
+      - .pub-cache/
+      - .fvm-cache/
+  before_script:
+    - bash fastlane/forge/scripts/setup_fvm.sh
+    - export PATH="${CI_PROJECT_DIR}/.fvm/flutter_sdk/bin:${PUB_CACHE}/bin:${PATH}"
+
+.forge_analyze:
+  extends: .forge_flutter
+  script:
+    - bash fastlane/forge/scripts/analyze.sh
+
+# Tests with coverage, then SonarQube analysis (merge request or branch), configured
+# entirely by the project's sonar-project.properties.
+# Requires SONAR_TOKEN (masked) and SONAR_HOST_URL (or sonar.host.url).
+.forge_test_sonar:
+  extends: .forge_flutter
+  variables:
+    GIT_DEPTH: "0"
+    FORGE_SONAR_SCANNER_VERSION: 6.2.1.4610
+    FORGE_SONAR_SCANNER_SHA256: 0b8a3049f0bd5de7abc1582c78c233960d3d4ed7cc983a1d1635e8552f8bb439
+  script:
+    - |
+      if ! command -v sonar-scanner > /dev/null; then
+        command -v unzip > /dev/null || (apt-get update -qq && apt-get install -y -qq unzip > /dev/null)
+        curl -sSLo /tmp/sonar-scanner.zip "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${FORGE_SONAR_SCANNER_VERSION}-linux-x64.zip"
+        echo "${FORGE_SONAR_SCANNER_SHA256}  /tmp/sonar-scanner.zip" | sha256sum -c -
+        unzip -q /tmp/sonar-scanner.zip -d /opt
+        export PATH="/opt/sonar-scanner-${FORGE_SONAR_SCANNER_VERSION}-linux-x64/bin:${PATH}"
+      fi
+    - bash fastlane/forge/scripts/test.sh --sonar
+  artifacts:
+    when: always
+    paths:
+      - coverage/coverage_html.zip
+    expire_in: 7 days
+
+# Build delegated to a Codemagic workflow (iOS on macOS, Android on Linux...), whose
+# artifacts are downloaded into codemagic-artifacts/. Set CODEMAGIC_WORKFLOW_ID on the job.
+.forge_codemagic:
+  extends: .forge_base
+  image: alpine:3.20
+  timeout: 90 minutes
+  before_script:
+    - apk add --no-cache curl jq > /dev/null
+  script:
+    - sh fastlane/forge/scripts/codemagic_build.sh "$CODEMAGIC_WORKFLOW_ID" codemagic-artifacts
+  after_script:
+    # A canceled GitLab job also cancels the Codemagic build
+    - |
+      if [ "$CI_JOB_STATUS" = "canceled" ] && [ -f .codemagic_build_id ]; then
+        apk add --no-cache curl > /dev/null
+        curl -sS -X POST -H "x-auth-token: ${CODEMAGIC_API_TOKEN}" "https://api.codemagic.io/builds/$(cat .codemagic_build_id)/cancel" || true
+      fi
+  artifacts:
+    when: always
+    paths:
+      - codemagic-artifacts/
+    expire_in: 30 days
+
+# Deprecated: former name of .forge_codemagic, kept for the projects that extend it.
+.forge_codemagic_ios:
+  extends: .forge_codemagic

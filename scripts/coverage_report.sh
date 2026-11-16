@@ -45,10 +45,10 @@ if ! command -v lcov >/dev/null || ! command -v genhtml >/dev/null; then
 fi
 [ -f "$LCOV_FILE" ] || { log "$LCOV_FILE introuvable : lancer les tests avec --coverage"; exit 1; }
 
-# lcov 2.x fails on patterns matching no file unless told otherwise
+# lcov 2.x fails on patterns matching no file, or on a report without function data, unless told otherwise
 LCOV_EXTRA_ARGS=()
 if lcov --version | grep -Eq 'version (2|[3-9])\.'; then
-  LCOV_EXTRA_ARGS+=(--ignore-errors unused)
+  LCOV_EXTRA_ARGS+=(--ignore-errors unused,empty)
 fi
 
 rm -rf coverage/html coverage/html_filtered coverage/coverage_html.zip "$FILTERED_FILE"

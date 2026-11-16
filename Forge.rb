@@ -8,7 +8,7 @@
 # Project-specific values come from the project's fastlane folder:
 #   - Appfile: app_identifier (iOS) and package_name (Android)
 #   - Matchfile: iOS signing (repo, type, team...)
-#   - .env.default: optional settings listed below
+#   - .env.default / .env.<name>: settings listed below, loaded with --env <name>
 #
 # You can find the documentation at https://docs.fastlane.tools
 
@@ -17,10 +17,42 @@
 FORGE_DIR = File.expand_path(__dir__) unless defined?(FORGE_DIR)
 FORGE_PROJECT_ROOT = File.expand_path("../..", __dir__) unless defined?(FORGE_PROJECT_ROOT)
 
-# Helpers (forge_sh, forge_flavor_args...). import() resolves relative paths from
+# Helpers (forge_sh, forge_setting...). import() resolves relative paths from
 # the project's Fastfile, hence the absolute path.
 import(File.join(FORGE_DIR, "Utils.rb"))
 
+# Sets APP_BUILD_NAME and APP_BUILD_NUMBER (unless already set) from the tag, the
+# release/x.y.z branch or pubspec.yaml, on Codemagic, GitLab CI and locally.
+#
+# Optional settings (environment):
+#   FORGE_VERSION_TAG_REGEX    regex whose first group is the version in the tag
+#                              (default: ^v?(\d+\.\d+\.\d+))
+#   FORGE_BUILD_NUMBER_PREFIX  prefix of the build number (e.g. 100)
+desc "Resolve the version name and build number"
+lane :version_metadata do
+  forge_resolve_version_metadata
+end
+
+# Prepares the project before analyzing, testing or building it (scripts/prepare.sh).
+# Called by the build lanes; analyze.sh and test.sh run prepare.sh themselves.
+#
+# Optional settings (environment):
+#   FORGE_CI_FILES           files written from environment variables, space-separated
+#                            VAR:path entries (VAR?:path: optional variable)
+#   FORGE_ANDROID_CI_FILES   same, only for the android platform lanes
+#   FORGE_IOS_CI_FILES       same, only for the ios platform lanes
+#   FORGE_PREPARE_SCRIPT     project script run (with bash) after the files are written
+#   FORGE_BUILD_RUNNER       true runs build_runner after pub get (default: false)
+desc "Prepare the project (version, CI files, dependencies, code generation)"
+lane :prepare do
+  forge_resolve_version_metadata
+
+  platform = lane_context[SharedValues::PLATFORM_NAME]
+  forge_script("prepare.sh", env: platform ? { "FORGE_PLATFORM" => platform } : {})
+end
+
+# Runs scripts/test.sh, also usable without Ruby (GitLab CI).
+#
 # Options:
 #   coverage:true      generates coverage/lcov.info and the HTML reports (scripts/coverage_report.sh)
 #   send_metrics:true  then publishes the SonarQube analysis (send_metrics lane), coverage included.
@@ -31,89 +63,81 @@ import(File.join(FORGE_DIR, "Utils.rb"))
 #   FORGE_COVERAGE_EXCLUDES  space-separated lcov patterns excluded from the filtered report
 desc "Run Flutter tests"
 lane :test do |options|
-  # Checked before the tests so that a missing token does not fail after a full test run
-  publish_metrics = options[:send_metrics] && forge_sonar_token?
-  coverage = options[:coverage] || publish_metrics
-
-  UI.message("Fetching Flutter dependencies...")
-  forge_sh("fvm flutter pub get")
-
-  UI.message("Running Flutter tests...")
-  command = "fvm flutter test"
-  command += " --coverage" if coverage
-  forge_sh(command)
-
-  UI.success("Flutter tests passed 🎉")
-
-  if coverage
-    UI.message("Generating coverage reports...")
-    forge_sh("bash #{File.join(FORGE_DIR, "scripts", "coverage_report.sh").shellescape}")
-    UI.success("Coverage reports generated in: coverage/ 🎉")
-  end
-
-  send_metrics if publish_metrics
+  args = []
+  args << "--coverage" if options[:coverage]
+  args << "--sonar" if options[:send_metrics]
+  forge_script("test.sh", *args)
 end
 
+# Runs scripts/analyze.sh, also usable without Ruby (GitLab CI).
+#
+# Optional settings (fastlane/.env.default or environment):
+#   FORGE_ANALYZE_ARGS  extra flutter analyze arguments (e.g. --no-fatal-infos)
 desc "Run the Flutter static analysis"
 lane :analyze do
-  UI.message("Fetching Flutter dependencies...")
-  forge_sh("fvm flutter pub get")
-
-  UI.message("Running Flutter analyze...")
-  forge_sh("fvm flutter analyze")
-
-  UI.success("Flutter analyze passed 🎉")
+  forge_script("analyze.sh")
 end
 
 # Publishes the SonarQube analysis of the current sources and of the existing
-# coverage/lcov.info. Usually run through `test send_metrics:true`, which runs
-# the tests with coverage first.
+# coverage/lcov.info (scripts/send_metrics.sh). Usually run through
+# `test send_metrics:true`, which runs the tests with coverage first.
 #
-# Static settings (project key, sources, exclusions, lcov path) are read by
-# sonar-scanner from the project's sonar-project.properties.
+# The whole configuration lives in the project's sonar-project.properties, version,
+# branch and merge request included (${env.APP_BUILD_NAME}, ${env.FORGE_SONAR_BRANCH},
+# ${env.CI_MERGE_REQUEST_*}): see the README, "SonarQube analysis".
 #
 # Settings (environment):
 #   SONAR_TOKEN         SonarQube token (required)
-#   SONAR_HOST_URL      SonarQube URL
-#   SONAR_SCANNER_ARGS  extra sonar-scanner arguments (CI: branch / merge request analysis).
-#                       When unset outside CI, the current Git branch is analysed.
+#   SONAR_HOST_URL      SonarQube URL (or sonar.host.url in sonar-project.properties)
 desc "Send the metrics (analysis and coverage) to SonarQube"
 lane :send_metrics do
-  UI.user_error!("SONAR_TOKEN is not set") if ENV["SONAR_TOKEN"].to_s.empty?
-  UI.user_error!("sonar-scanner not found: install it (e.g. brew install sonar-scanner)") unless system("command -v sonar-scanner > /dev/null")
-  UI.important("coverage/lcov.info not found: the analysis will have no coverage") unless File.exist?(File.join(FORGE_PROJECT_ROOT, "coverage", "lcov.info"))
-
-  args = ENV["SONAR_SCANNER_ARGS"].to_s
-  args = "-Dsonar.branch.name=#{git_branch.shellescape}" if args.empty? && !is_ci
-
-  UI.message("Running SonarQube analysis...")
-  forge_sh("sonar-scanner #{args}".strip)
-  UI.success("SonarQube analysis published 🎉")
+  forge_script("send_metrics.sh")
 end
 
+# Options shared by build_android_release and build_ipa_release. Each one falls back to
+# FORGE_<PLATFORM>_<SETTING> (e.g. FORGE_ANDROID_FLAVOR, FORGE_IOS_BUILD_NUMBER), then to
+# the environment variable in brackets:
+#   flavor:<name>                 --flavor (FLAVOR)
+#   target:<path>                 entry point (FORGE_TARGET, default: lib/main.dart,
+#                                 or lib/main_<flavor>.dart when it exists)
+#   dart_defines:<list>           space-separated KEY=VALUE, each passed with --dart-define
+#                                 (FORGE_DART_DEFINES, e.g. "ENV=dev API=https://...")
+#   dart_define_from_file:<path>  --dart-define-from-file (FORGE_DART_DEFINE_FROM_FILE)
+#   build_name:<x.y.z>            --build-name (APP_BUILD_NAME, see version_metadata)
+#   build_number:<n>              --build-number (APP_BUILD_NUMBER, see version_metadata)
+#   tree_shake_icons:false        adds --no-tree-shake-icons (FORGE_TREE_SHAKE_ICONS, default: true)
+#   extra_args:<args>             extra flutter build arguments (FORGE_<PLATFORM>_BUILD_ARGS only)
+
 platform :android do
-  # Options:
-  #   flavor:<name>  builds this flavor (entry point lib/main_<name>.dart when it exists)
-  #   target:<path>  entry point (default: lib/main.dart, or lib/main_<flavor>.dart)
-  desc "Build APK for release"
-  lane :build_apk_release do |options|
-    flavor = options[:flavor]
+  # Options: see above, plus
+  #   type:apk|appbundle  artifact to build (FORGE_ANDROID_BUILD_TYPE, default: apk)
+  #
+  # Release signing is configured by the project's Gradle files (see README).
+  desc "Build Android release (APK or App Bundle)"
+  lane :build_android_release do |options|
+    type = forge_setting(options, :type, "FORGE_ANDROID_BUILD_TYPE", "apk")
+    UI.user_error!("Unknown Android build type '#{type}', expected apk or appbundle") unless %w[apk appbundle].include?(type)
 
     UI.message("Cleaning Flutter project...")
     forge_sh("fvm flutter clean")
 
-    UI.message("Building Flutter APK release#{" (#{flavor})" if flavor}...")
-    forge_sh("fvm flutter build apk --release#{forge_flavor_args(flavor, options[:target])}")
+    prepare
 
-    apk_name = flavor ? "app-#{flavor}-release.apk" : "app-release.apk"
-    UI.success("APK built successfully at: build/app/outputs/flutter-apk/#{apk_name} 🎉")
+    command = ["fvm", "flutter", "build", type, "--release"] + forge_flutter_build_args(options, :android)
+    UI.message("Building Flutter Android #{type} release...")
+    forge_sh(*command)
+
+    output = type == "apk" ? "build/app/outputs/flutter-apk/" : "build/app/outputs/bundle/"
+    UI.success("Android #{type} built successfully in: #{output} 🎉")
+  end
+
+  desc "Build APK for release (alias of build_android_release type:apk)"
+  lane :build_apk_release do |options|
+    build_android_release(options.merge(type: "apk"))
   end
 end
 
 platform :ios do
-  # Optional settings (fastlane/.env.default or environment):
-  #   FORGE_IOS_IPA_NAME       IPA file name (default: Runner.ipa)
-  #   FORGE_IOS_EXPORT_METHOD  build_app export method (default: enterprise)
   # Required settings (environment, e.g. CI variables):
   #   MATCH_KEYCHAIN_NAME      name of the keychain to create (also read by match)
   #   MATCH_KEYCHAIN_PASSWORD  password of the keychain (also read by match)
@@ -144,36 +168,39 @@ platform :ios do
     end
   end
 
-  # Options:
-  #   flavor:<name>  builds this flavor: Xcode scheme <name>, configuration Release-<name>,
-  #                  entry point lib/main_<name>.dart when it exists
-  #   target:<path>  entry point (default: lib/main.dart, or lib/main_<flavor>.dart)
+  # Options: see above, plus
+  #   export_options_plist:<path>   --export-options-plist, relative to the project root
+  #                                 (IOS_EXPORT_OPTIONS_PLIST_PATH). When unset,
+  #                                 --export-method FORGE_IOS_EXPORT_METHOD is used instead.
   desc "Build IPA Release"
   lane :build_ipa_release do |options|
-    flavor = options[:flavor]
-    ipa_name = ENV.fetch("FORGE_IOS_IPA_NAME", "Runner.ipa")
+    export_options_plist = forge_setting(options, :export_options_plist, "IOS_EXPORT_OPTIONS_PLIST_PATH")
+    if export_options_plist
+      export_options_plist = File.expand_path(export_options_plist, FORGE_PROJECT_ROOT)
+      UI.user_error!("Export options plist not found: #{export_options_plist}") unless File.exist?(export_options_plist)
+    end
 
     UI.message("Starting Flutter clean...")
     forge_sh("fvm flutter clean")
 
+    prepare
+
     UI.message("Setting up signing...")
     signing_setup
 
-    UI.message("Building Flutter iOS release#{" (#{flavor})" if flavor}...")
-    forge_sh("fvm flutter build ios --release#{forge_flavor_args(flavor, options[:target])}")
+    UI.message("Installing CocoaPods dependencies...")
+    cocoapods(podfile: File.join(FORGE_PROJECT_ROOT, "ios", "Podfile"))
 
-    UI.message("Building iOS IPA file...")
-    build_app(
-      workspace: File.join(FORGE_PROJECT_ROOT, "ios", "Runner.xcworkspace"),
-      scheme: flavor || "Runner",
-      configuration: flavor ? "Release-#{flavor}" : "Release",
-      silent: true,
-      clean: true,
-      output_directory: File.join(FORGE_PROJECT_ROOT, "build", "fastlane", "ipa"),
-      output_name: ipa_name,
-      export_method: ENV.fetch("FORGE_IOS_EXPORT_METHOD", "enterprise")
-    )
+    command = %w[fvm flutter build ipa --release] + forge_flutter_build_args(options, :ios)
+    if export_options_plist
+      command += ["--export-options-plist", export_options_plist]
+    else
+      command += ["--export-method", ENV.fetch("FORGE_IOS_EXPORT_METHOD", "enterprise")]
+    end
 
-    UI.success("iOS IPA built successfully and located at: build/fastlane/ipa/#{ipa_name} 🎉")
+    UI.message("Building Flutter iOS release...")
+    forge_sh(*command)
+
+    UI.success("iOS IPA built successfully and located at: build/ios/ipa/ 🎉")
   end
 end
